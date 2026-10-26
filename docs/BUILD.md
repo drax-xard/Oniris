@@ -4,7 +4,7 @@
 
 The scaffold is built and tested with:
 
-- Rust 1.98 (edition 2021, MSRV 1.85)
+- Rust 1.98 (edition 2021, MSRV 1.88)
 - Temurin JDK 21
 - Gradle 8.14.3 (wrapper), AGP 8.13.2, Kotlin 2.4.21
 - Android SDK 36, build-tools 36.0.0
@@ -15,7 +15,7 @@ catalog is intentionally pinned to the newest versions that work with SDK 36.
 
 ## Requirements
 
-- Rust stable (1.85+)
+- Rust stable (1.88+)
 - JDK 17 or 21 (AGP does not officially support JDK 25 yet)
 - Android SDK 36 and build-tools 36.0.0
 - `cargo-ndk`
@@ -33,15 +33,25 @@ cargo fmt --manifest-path core/Cargo.toml --all --check
 Generate test content and render a mix:
 
 ```bash
+# Ogg/Opus by default, matching production assets
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- gen-test-packs packs
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- validate packs/test-rain
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
   render --pack packs/test-rain --pack packs/test-fire \
   --minutes 10 --out /tmp/oniris-test.wav
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- analyze /tmp/oniris-test.wav
+
+# Lossless WAV fallback for codec debugging
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+  gen-test-packs /tmp/oniris-wav --format wav
+
+# Encode a WAV master as a gapless 48 kHz Ogg/Opus asset
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+  encode-opus master.wav master.opus --bitrate 96000
 ```
 
-The generated WAVs are ignored by git.
+Ogg/Opus uses the pure-Rust `opus-pure` crate: no libopus, CMake, or NDK codec
+build is required. Generated audio is ignored by git.
 
 ## Native library for Android
 
@@ -96,8 +106,9 @@ sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
 
 ## Content
 
-Put development packs in `android/app/src/main/assets/packs/<id>/` to have the
-app copy them to internal storage on first launch, or push them with:
+Put development packs (Ogg/Opus or WAV) in
+`android/app/src/main/assets/packs/<id>/` to have the app copy them to internal
+storage on first launch, or push them with:
 
 ```bash
 adb push packs/test-rain /sdcard/Android/data/dev.oniris/files/packs/test-rain

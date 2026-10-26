@@ -1,14 +1,21 @@
 //! PCM decoding and format normalization.
 //!
-//! The production format is Opus. The scaffold decodes WAV so the mixer can be
-//! developed and tested without a native codec dependency. `decode_audio` is the
-//! single extension point for adding Opus/Vorbis later.
+//! Production packs use Ogg/Opus; WAV is kept as a lossless test and fallback
+//! format. Both paths normalize to mono/stereo at the engine rate (or the
+//! requested target rate) before the mixer sees them.
 
+use std::fs::File;
+use std::io::BufReader;
 use std::path::Path;
 
 use hound::{SampleFormat, WavReader};
+use opus_pure::{OggOpusReader, Trim, MAX_PACKET_SAMPLES};
 
 use crate::error::EngineError;
+
+/// Opus decodes natively at 48 kHz. Higher or lower target rates are obtained
+/// by decoding at 48 kHz and resampling once at load time.
+const OPUS_RATE: u32 = 48_000;
 
 #[derive(Debug, Clone)]
 pub struct DecodedAudio {
@@ -62,7 +69,81 @@ pub fn decode_audio(path: &Path, target_rate: u32) -> Result<DecodedAudio, Engin
 
     match extension.as_str() {
         "wav" => decode_wav(path, target_rate),
+        "opus" | "ogg" => decode_opus(path, target_rate),
         other => Err(EngineError::UnsupportedFormat(format!(".{other}"))),
+    }
+}
+
+/// Decode an Ogg/Opus file, applying the RFC 7845 pre-skip and end-trim so the
+/// returned frames match the audio that was encoded.
+fn decode_opus(path: &Path, target_rate: u32) -> Result<DecodedAudio, EngineError> {
+    let file = File::open(path).map_err(|error| EngineError::Decode {
+        path: path.to_path_buf(),
+        message: error.to_string(),
+    })?;
+    let mut reader =
+        OggOpusReader::new(BufReader::new(file)).map_err(|error| opus_error(path, error))?;
+
+    let head = reader.head().clone();
+    let channels = head.channel_count as usize;
+    if !(1..=2).contains(&channels) {
+        return Err(EngineError::InvalidAudio(format!(
+            "Opus file {} has {channels} channels; only mono and stereo are supported",
+            path.display()
+        )));
+    }
+
+    let mut decoder = head
+        .decoder(OPUS_RATE as i32)
+        .map_err(|error| opus_error(path, error))?;
+    let mut trim =
+        Trim::new(&head, OPUS_RATE as i32, channels).map_err(|error| opus_error(path, error))?;
+
+    let mut block = vec![0i16; MAX_PACKET_SAMPLES * channels];
+    let mut samples = Vec::new();
+    while let Some(packet) = reader
+        .read_packet()
+        .map_err(|error| opus_error(path, error))?
+    {
+        let frames = decoder
+            .decode_s16(&packet.data, MAX_PACKET_SAMPLES, &mut block)
+            .map_err(|error| opus_error(path, error))?;
+        let audio = trim.keep(&packet, &block[..frames * channels]);
+        samples.extend_from_slice(audio);
+    }
+
+    if samples.is_empty() {
+        return Err(EngineError::InvalidAudio(format!(
+            "Opus file {} contains no audio",
+            path.display()
+        )));
+    }
+
+    let source_frames = samples.len() / channels;
+    let samples = if target_rate == OPUS_RATE {
+        samples
+    } else {
+        resample(&samples, channels as u16, OPUS_RATE, target_rate)
+    };
+    let frames = samples.len() / channels;
+
+    Ok(DecodedAudio {
+        samples,
+        channels: channels as u16,
+        sample_rate: target_rate,
+        frames,
+        // Ogg/Opus loop points are authored at 48 kHz. The header's
+        // input_sample_rate is informational and does not change decoding.
+        source_sample_rate: OPUS_RATE,
+        source_channels: channels as u16,
+        source_frames,
+    })
+}
+
+fn opus_error(path: &Path, error: opus_pure::Error) -> EngineError {
+    EngineError::Decode {
+        path: path.to_path_buf(),
+        message: error.to_string(),
     }
 }
 
@@ -198,12 +279,137 @@ fn resample(input: &[i16], channels: u16, input_rate: u32, output_rate: u32) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use opus_pure::{Application, OggOpusWriter, OpusEncoder, OpusHead, MAX_PACKET_BYTES};
+
+    /// Encode interleaved PCM as a gapless Ogg/Opus stream. This mirrors the
+    /// arithmetic in opus-pure's encoder example: feed enough silence to flush
+    /// the encoder delay, then declare the true end through the final granule.
+    fn encode_test_opus(samples: &[i16], channels: usize, rate: u32) -> Vec<u8> {
+        assert!(matches!(rate, 8_000 | 12_000 | 16_000 | 24_000 | 48_000));
+        assert!(matches!(channels, 1 | 2));
+        assert_eq!(samples.len() % channels, 0);
+
+        let frame = (rate / 50) as usize;
+        let mut encoder = OpusEncoder::new(rate as i32, channels, Application::Audio).unwrap();
+        encoder.bitrate_bps = 96_000;
+
+        let head = OpusHead::for_encoder(&encoder, rate);
+        let ticks = 48_000 / rate as usize;
+        let total = samples.len() / channels;
+        let lookahead = (head.pre_skip as usize).div_ceil(ticks);
+        let packet_count = (total + lookahead).div_ceil(frame);
+        let final_granule = head.pre_skip as u64 + (total * ticks) as u64;
+
+        let mut writer = OggOpusWriter::new(Vec::new(), head).unwrap();
+        let mut packet = vec![0u8; MAX_PACKET_BYTES];
+        let per_frame = frame * channels;
+        let mut block = vec![0i16; per_frame];
+
+        for index in 0..packet_count {
+            let start = (index * per_frame).min(samples.len());
+            let end = (start + per_frame).min(samples.len());
+            block[..end - start].copy_from_slice(&samples[start..end]);
+            block[end - start..].fill(0);
+
+            let written = encoder.encode_s16(&block, frame, &mut packet).unwrap();
+            if index + 1 == packet_count {
+                let duration = final_granule - writer.granule() as u64;
+                writer
+                    .write_packet_with_duration(&packet[..written], duration as u32)
+                    .unwrap();
+            } else {
+                writer.write_packet(&packet[..written]).unwrap();
+            }
+        }
+
+        writer.finish().unwrap()
+    }
+
+    fn sine(frames: usize, channels: usize, rate: u32, amplitude: f32) -> Vec<i16> {
+        (0..frames)
+            .flat_map(|frame| {
+                let value = (frame as f32 * std::f32::consts::TAU * 440.0 / rate as f32).sin()
+                    * amplitude
+                    * i16::MAX as f32;
+                let value = value.round() as i16;
+                std::iter::repeat_n(value, channels)
+            })
+            .collect()
+    }
+
+    fn rms(samples: &[i16]) -> f32 {
+        let sum: f64 = samples
+            .iter()
+            .map(|sample| (*sample as f64) * (*sample as f64))
+            .sum();
+        (sum / samples.len() as f64).sqrt() as f32 / i16::MAX as f32
+    }
+
+    fn write_opus(
+        samples: &[i16],
+        channels: usize,
+        rate: u32,
+    ) -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.opus");
+        std::fs::write(&path, encode_test_opus(samples, channels, rate)).unwrap();
+        (dir, path)
+    }
 
     #[test]
     fn resample_preserves_duration() {
         let input = vec![0i16; 48_000 * 2];
         let output = resample(&input, 2, 48_000, 44_100);
         assert_eq!(output.len(), 44_100 * 2);
+    }
+
+    #[test]
+    fn decodes_stereo_opus_without_delay_or_padding() {
+        let samples = sine(48_000, 2, 48_000, 0.25);
+        let (_dir, path) = write_opus(&samples, 2, 48_000);
+
+        let audio = decode_audio(&path, 48_000).unwrap();
+        assert_eq!(audio.channels, 2);
+        assert_eq!(audio.sample_rate, 48_000);
+        assert_eq!(audio.source_sample_rate, 48_000);
+        assert_eq!(audio.frames, 48_000);
+        assert_eq!(audio.source_frames, 48_000);
+        assert!((rms(&audio.samples) - 0.25 / 2f32.sqrt()).abs() < 0.02);
+    }
+
+    #[test]
+    fn decodes_mono_opus() {
+        let samples = sine(24_000, 1, 48_000, 0.2);
+        let (_dir, path) = write_opus(&samples, 1, 48_000);
+
+        let audio = decode_audio(&path, 48_000).unwrap();
+        assert_eq!(audio.channels, 1);
+        assert_eq!(audio.frames, 24_000);
+        assert_eq!(audio.source_frames, 24_000);
+        assert!((rms(&audio.samples) - 0.2 / 2f32.sqrt()).abs() < 0.02);
+    }
+
+    #[test]
+    fn decodes_opus_and_resamples_to_engine_rate() {
+        let samples = sine(48_000, 2, 48_000, 0.2);
+        let (_dir, path) = write_opus(&samples, 2, 48_000);
+
+        let audio = decode_audio(&path, 44_100).unwrap();
+        assert_eq!(audio.sample_rate, 44_100);
+        assert_eq!(audio.source_sample_rate, 48_000);
+        assert_eq!(audio.source_frames, 48_000);
+        assert_eq!(audio.frames, 44_100);
+    }
+
+    #[test]
+    fn rejects_malformed_opus() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("broken.opus");
+        std::fs::write(&path, b"not an ogg opus stream").unwrap();
+        assert!(matches!(
+            decode_audio(&path, 48_000),
+            Err(EngineError::Decode { .. })
+        ));
     }
 
     #[test]

@@ -127,14 +127,24 @@ The core has no Android types. The JNI crate is a thin shim; a C header can be
 generated for other platforms. Pack parsing and the asset pipeline are
 platform-neutral.
 
+## Codec notes
+
+- Ogg/Opus and WAV are decoded at load, before the mixer starts. Opus is always
+  decoded at 48 kHz and resampled once if the engine runs at another rate;
+  RFC 7845 pre-skip and end-trim are applied so loop points stay sample-exact.
+- `opus-pure` provides both decode and encode in pure Rust. There is no libopus
+  FFI, CMake step, or extra Android library to package.
+- The CLI encoder writes gapless files, which `oniris validate` and the engine
+  test suite exercise on every run. WAV remains supported for lossless tests.
+
 ## Known scaffold gaps
 
-- Opus/Vorbis decode (WAV only today).
 - Media3 `SimpleBasePlayer` adapter (using `MediaSessionCompat`).
 - Lookahead limiter (instant-attack limiter today).
 - High-quality resampler (linear today).
 - Crossfade when changing mixes while playing.
-- Download manager, pack import UI, and bundled pack installation.
+- Download manager, pack import UI, and bundled pack installation for `.onirispack` files.
 - Real content and loudness normalization pipeline.
+- Real-device battery, underrun, and thermal soak testing.
 
 These are tracked in `docs/DEVELOPMENT_PLAN.md`.

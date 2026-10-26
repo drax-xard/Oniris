@@ -45,6 +45,13 @@ MIT or Apache-2.0 are the usual choices for a portable audio core; choose one
 after deciding whether the project is open source. Until then, treat the
 repository as all-rights-reserved.
 
+## Third-party code
+
+The audio core uses `opus-pure` (BSD-3-Clause) for Ogg/Opus decode and encode.
+Its copyright notice must ship with binary distributions; add it to the in-app
+attribution/license screen before the first public release. Keep the
+dependency list and notices current as crates are added.
+
 ## Launch content sources
 
 - Own field recordings (rain, fire, sea, forest).

@@ -289,9 +289,11 @@ dependencies = [
  "hound",
  "oniris-core",
  "oniris-pack",
+ "opus-pure",
  "rand",
  "rand_chacha",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -300,6 +302,7 @@ version = "0.1.0"
 dependencies = [
  "hound",
  "oniris-pack",
+ "opus-pure",
  "rand",
  "rand_chacha",
  "serde",
@@ -326,6 +329,12 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
 ]
+
+[[package]]
+name = "opus-pure"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4de7c2ad44427a636b27bf0b03eb29e713775ba1b45ff31a0618c19ee5adb215"
 
 [[package]]
 name = "ppv-lite86"

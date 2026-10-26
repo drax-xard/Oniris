@@ -4,16 +4,16 @@ Oniris is a battery-first Android sleep-soundscape app. It mixes seamless ambien
 
 The audio engine is written in Rust so the same sound model can run on Android today and on desktop, Raspberry Pi, or the web later.
 
-**Status:** early scaffold. The Rust core, pack format, CLI, and Android shell are in place, and the Android debug APK builds with JDK 21 + SDK 36. The first real sound packs and the production Opus decoder are next.
+**Status:** early scaffold, with the production audio format working end to end. The Rust core, pack format, CLI, Android shell, and Ogg/Opus decode/encode are in place, and the Android debug APK builds with JDK 21 + SDK 36. Real sound packs and on-device/battery validation are next.
 
 ## What works today
 
-- Rust core: manifest validation, WAV decode/resample, seamless bed loops, randomized event voices, LFOs, fades, sleep timer, limiter.
-- `oniris` CLI: generate synthetic test packs, validate, render, analyze.
+- Rust core: manifest validation, Ogg/Opus and WAV decode/resample, seamless bed loops, randomized event voices, LFOs, fades, sleep timer, limiter.
+- `oniris` CLI: generate synthetic Opus/WAV test packs, encode Opus, validate, render, analyze.
 - Android app: pack library, multi-pack selection, volume, sleep timer, foreground media notification, audio focus, wake lock, persisted settings.
 - Native library builds for `arm64-v8a`, `armeabi-v7a`, and `x86_64`; debug and release APKs assemble.
 
-Smoke-tested on an Android 36 x86_64 emulator: pack discovery, play/pause, media-session state, foreground notification, and wake-lock acquire/release all work. On-device battery and audio soak tests are still pending.
+Smoke-tested on an Android 36 x86_64 emulator: pack discovery, play/pause, media-session state, foreground notification, and wake-lock acquire/release all work. Opus decode is covered by Rust round-trip tests; on-device audio and battery soak tests are still pending. The codec is pure Rust (`opus-pure`), so Android builds need no extra native library.
 
 ## Why this architecture
 
@@ -29,7 +29,7 @@ android/                 Android app (Kotlin, Compose, media service)
 core/                    Rust workspace
   oniris-pack/           Manifest types, validation, path safety
   oniris-core/           Decoder, mixer, scheduler, limiter, sleep timer
-  oniris-cli/            render / validate / analyze / gen-test-packs
+  oniris-cli/            render / validate / analyze / encode-opus / gen-test-packs
   oniris-jni/            JNI bridge for Android
 docs/                    Plan, architecture, pack format, build notes
 packs/                   Generated test packs (ignored by git)
@@ -43,11 +43,19 @@ scripts/                 Helper scripts
 # Build and test the core
 cargo test --manifest-path core/Cargo.toml --workspace
 
-# Generate synthetic test packs (rain + fire)
+# Generate synthetic test packs (rain + fire); Ogg/Opus by default
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- gen-test-packs packs
 
-# Validate a pack
+# Lossless fallback for debugging or codec A/B tests
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+  gen-test-packs /tmp/oniris-wav-packs --format wav
+
+# Validate a pack (decodes every asset)
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- validate packs/test-rain
+
+# Encode a WAV master as a gapless 48 kHz Opus asset
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+  encode-opus path/to/master.wav /tmp/master.opus --bitrate 96000
 
 # Render a 10-minute mix to WAV
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
@@ -57,7 +65,7 @@ cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- analyze /tmp/oniris-test.wav
 ```
 
-The generated test packs use WAV so the scaffold works without native codec dependencies. Production packs will be Opus; the decoder is behind an explicit trait so it can be added without changing the mixer.
+Test packs are Ogg/Opus by default; `--format wav` keeps a lossless fallback. Production packs are Opus too. Decoding and encoding use the pure-Rust `opus-pure` crate, so the core and Android builds need no system codec, FFI, or CMake.
 
 ## Android build
 

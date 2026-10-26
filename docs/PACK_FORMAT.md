@@ -92,7 +92,7 @@ Rules:
 | Field | Required | Notes |
 |---|---|---|
 | `id` | yes | Unique within the pack. |
-| `file` | yes | Safe relative path. WAV in the scaffold; Opus in production. |
+| `file` | yes | Safe relative path. Ogg/Opus in production; WAV is a test/fallback format. |
 | `loop.startSample` | yes | Source-rate sample index; inclusive. |
 | `loop.endSample` | yes | Source-rate sample index; exclusive. Loop length 1 s–10 min. |
 | `gainDb` | no | -60..6 dB; default 0. |
@@ -132,8 +132,15 @@ localized sounds and narrow ranges for thunder/rumble.
 - Loudness: beds normalized to -23 LUFS integrated; events balanced relative to
   the bed; true peak ≤ -1.5 dBTP.
 
-**Scaffold:** the current decoder reads WAV only. `decode_audio()` is the single
-extension point for Opus. Do not ship production content as WAV.
+**Current decoder:** Ogg/Opus is the production path; `.opus` and `.ogg` files
+are decoded natively. WAV remains supported for lossless tests and debugging.
+Both formats pass through `decode_audio()`, which normalizes channels and
+applies any required resampling once at load time.
+
+For Opus, loop points are expressed at 48 kHz. The decoder applies the RFC 7845
+pre-skip and end-trim, so a gapless file's decoded frame count matches the
+samples that were encoded. `oniris-cli encode-opus` writes such files. Do not
+ship production content as WAV.
 
 ## Safety and validation
 
@@ -147,8 +154,8 @@ The loader must:
 - Treat audio and JSON as untrusted input.
 
 `cargo run -p oniris-cli -- validate <dir>` performs structural, path, and decode
-validation. Add a zip extractor with the same rules before supporting
-`.onirispack` imports.
+validation for both WAV and Ogg/Opus assets. Add a zip extractor with the same
+rules before supporting `.onirispack` imports.
 
 ## Authoring checklist
 

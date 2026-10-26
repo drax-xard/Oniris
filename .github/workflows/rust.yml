@@ -41,11 +41,22 @@ jobs:
       - name: Test
         run: cargo test --manifest-path core/Cargo.toml --workspace
 
-      - name: Render a short mix
+      - name: Render short Opus and WAV mixes
         run: |
-          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- gen-test-packs /tmp/packs
-          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- validate /tmp/packs/test-rain
+          # Production path: synthetic packs encoded as Ogg/Opus by default.
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- gen-test-packs /tmp/packs-opus
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- validate /tmp/packs-opus/test-rain
           cargo run --manifest-path core/Cargo.toml -p oniris-cli -- render \
-            --pack /tmp/packs/test-rain --pack /tmp/packs/test-fire \
-            --minutes 0.25 --out /tmp/oniris.wav --fade-in 0.5
-          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- analyze /tmp/oniris.wav
+            --pack /tmp/packs-opus/test-rain --pack /tmp/packs-opus/test-fire \
+            --minutes 0.25 --out /tmp/oniris-opus.wav --fade-in 0.5
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- analyze /tmp/oniris-opus.wav
+
+          # Keep the lossless fallback and the standalone encoder covered too.
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            gen-test-packs /tmp/packs-wav --format wav
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            encode-opus /tmp/packs-wav/test-rain/audio/rain.wav /tmp/rain.opus
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- validate /tmp/packs-wav/test-rain
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- render \
+            --pack /tmp/packs-wav/test-rain --pack /tmp/packs-wav/test-fire \
+            --minutes 0.25 --out /tmp/oniris-wav.wav --fade-in 0.5

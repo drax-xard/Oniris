@@ -1,12 +1,14 @@
 mod generate;
+mod opus_encode;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use generate::AudioFormat;
 use hound::{WavReader, WavSpec, WavWriter};
-use oniris_core::{Engine, MixEntry, MixSpec, DEFAULT_BLOCK_FRAMES};
+use oniris_core::{decode_audio, Engine, MixEntry, MixSpec, DEFAULT_BLOCK_FRAMES};
 use oniris_pack::Manifest;
 
 #[derive(Debug, Parser)]
@@ -43,8 +45,22 @@ enum Command {
     Validate { path: PathBuf },
     /// Print basic information about a WAV render.
     Analyze { path: PathBuf },
-    /// Generate synthetic WAV test packs (rain + fire) for development.
-    GenTestPacks { out: PathBuf },
+    /// Encode a WAV or Opus file as a 48 kHz Ogg/Opus asset.
+    EncodeOpus {
+        input: PathBuf,
+        output: PathBuf,
+        /// Target bitrate in bits per second.
+        #[arg(long, default_value_t = 96_000)]
+        bitrate: i32,
+    },
+    /// Generate synthetic test packs (rain + fire) for development.
+    GenTestPacks {
+        out: PathBuf,
+        /// Audio format for the generated assets. Opus is the production format;
+        /// WAV remains available as a lossless debugging fallback.
+        #[arg(long, value_enum, default_value = "opus")]
+        format: AudioFormat,
+    },
 }
 
 fn main() -> Result<()> {
@@ -60,8 +76,37 @@ fn main() -> Result<()> {
         } => render(&packs, minutes, &out, seed, fade_in, timer_minutes),
         Command::Validate { path } => validate(&path),
         Command::Analyze { path } => analyze(&path),
-        Command::GenTestPacks { out } => generate::generate_test_packs(&out),
+        Command::EncodeOpus {
+            input,
+            output,
+            bitrate,
+        } => encode_opus_file(&input, &output, bitrate),
+        Command::GenTestPacks { out, format } => generate::generate_test_packs(&out, format),
     }
+}
+
+fn encode_opus_file(input: &Path, output: &Path, bitrate: i32) -> Result<()> {
+    let audio = decode_audio(input, 48_000)
+        .with_context(|| format!("failed to decode {}", input.display()))?;
+    let stats = opus_encode::encode_opus(
+        output,
+        &audio.samples,
+        audio.channels,
+        audio.sample_rate,
+        bitrate,
+    )?;
+    let bytes = std::fs::metadata(output)
+        .with_context(|| format!("failed to inspect {}", output.display()))?
+        .len();
+    println!(
+        "encoded {} -> {} ({:.2} s, {} packets, {:.1} kB)",
+        input.display(),
+        output.display(),
+        stats.frames as f32 / audio.sample_rate as f32,
+        stats.packet_count,
+        bytes as f32 / 1024.0,
+    );
+    Ok(())
 }
 
 fn render(

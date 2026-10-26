@@ -14,6 +14,10 @@ clap.workspace = true
 hound.workspace = true
 oniris-core = { path = "../oniris-core" }
 oniris-pack = { path = "../oniris-pack" }
+opus-pure.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
 serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

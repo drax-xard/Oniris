@@ -9,39 +9,59 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use clap::ValueEnum;
 use hound::{WavSpec, WavWriter};
 use oniris_pack::Manifest;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
+use crate::opus_encode;
+
 const RATE: u32 = 48_000;
 
-pub fn generate_test_packs(out: &Path) -> Result<()> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum AudioFormat {
+    /// Ogg/Opus, the production format.
+    Opus,
+    /// 16-bit WAV, useful as a lossless fallback and for debugging.
+    Wav,
+}
+
+impl AudioFormat {
+    fn extension(self) -> &'static str {
+        match self {
+            AudioFormat::Opus => "opus",
+            AudioFormat::Wav => "wav",
+        }
+    }
+}
+
+pub fn generate_test_packs(out: &Path, format: AudioFormat) -> Result<()> {
     fs::create_dir_all(out).with_context(|| format!("failed to create {}", out.display()))?;
 
     let rain_dir = out.join("test-rain");
-    generate_rain(&rain_dir)?;
-    println!("generated {}", rain_dir.display());
+    generate_rain(&rain_dir, format)?;
+    println!("generated {} ({format:?})", rain_dir.display());
 
     let fire_dir = out.join("test-fire");
-    generate_fire(&fire_dir)?;
-    println!("generated {}", fire_dir.display());
+    generate_fire(&fire_dir, format)?;
+    println!("generated {} ({format:?})", fire_dir.display());
 
     Ok(())
 }
 
-fn generate_rain(dir: &Path) -> Result<()> {
+fn generate_rain(dir: &Path, format: AudioFormat) -> Result<()> {
     fs::create_dir_all(dir.join("audio"))?;
     let frames = RATE as usize * 30;
     let fade = RATE as usize;
     let source = rain_source(0xA1, frames + fade);
     let bed = crossfade_loop(&source, frames, fade);
-    write_wav(&dir.join("audio/rain.wav"), 2, &bed)?;
+    let bed_file = write_audio(dir, "rain", 2, &bed, format)?;
 
     let thunder_a = thunder(0x7A0, 6.0);
     let thunder_b = thunder(0x7A1, 7.5);
-    write_wav(&dir.join("audio/thunder-01.wav"), 1, &thunder_a)?;
-    write_wav(&dir.join("audio/thunder-02.wav"), 1, &thunder_b)?;
+    let thunder_a_file = write_audio(dir, "thunder-01", 1, &thunder_a, format)?;
+    let thunder_b_file = write_audio(dir, "thunder-02", 1, &thunder_b, format)?;
 
     let manifest = serde_json::json!({
         "schemaVersion": 1,
@@ -55,14 +75,14 @@ fn generate_rain(dir: &Path) -> Result<()> {
         "truePeakDbtp": -1.5,
         "beds": [{
             "id": "rain",
-            "file": "audio/rain.wav",
+            "file": bed_file,
             "loop": { "startSample": 0, "endSample": frames as u64 },
             "gainDb": -3.0,
             "lfo": { "target": "gain", "depth": 1.5, "periodSec": 47.0 }
         }],
         "events": [{
             "id": "thunder",
-            "files": ["audio/thunder-01.wav", "audio/thunder-02.wav"],
+            "files": [thunder_a_file, thunder_b_file],
             "minIntervalSec": 8.0,
             "maxIntervalSec": 20.0,
             "initialDelaySec": 3.0,
@@ -79,18 +99,18 @@ fn generate_rain(dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn generate_fire(dir: &Path) -> Result<()> {
+fn generate_fire(dir: &Path, format: AudioFormat) -> Result<()> {
     fs::create_dir_all(dir.join("audio"))?;
     let frames = RATE as usize * 20;
     let fade = RATE as usize;
     let source = fire_source(0xF12E, frames + fade);
     let bed = crossfade_loop(&source, frames, fade);
-    write_wav(&dir.join("audio/fire.wav"), 2, &bed)?;
+    let bed_file = write_audio(dir, "fire", 2, &bed, format)?;
 
     let crackle_a = crackle(0xC0A1, 1.2);
     let crackle_b = crackle(0xC0A2, 0.9);
-    write_wav(&dir.join("audio/crackle-01.wav"), 1, &crackle_a)?;
-    write_wav(&dir.join("audio/crackle-02.wav"), 1, &crackle_b)?;
+    let crackle_a_file = write_audio(dir, "crackle-01", 1, &crackle_a, format)?;
+    let crackle_b_file = write_audio(dir, "crackle-02", 1, &crackle_b, format)?;
 
     let manifest = serde_json::json!({
         "schemaVersion": 1,
@@ -104,14 +124,14 @@ fn generate_fire(dir: &Path) -> Result<()> {
         "truePeakDbtp": -1.5,
         "beds": [{
             "id": "fire",
-            "file": "audio/fire.wav",
+            "file": bed_file,
             "loop": { "startSample": 0, "endSample": frames as u64 },
             "gainDb": -4.0,
             "lfo": { "target": "gain", "depth": 1.0, "periodSec": 31.0 }
         }],
         "events": [{
             "id": "crackle",
-            "files": ["audio/crackle-01.wav", "audio/crackle-02.wav"],
+            "files": [crackle_a_file, crackle_b_file],
             "minIntervalSec": 2.0,
             "maxIntervalSec": 7.0,
             "gainDb": [-16.0, -8.0],
@@ -125,6 +145,26 @@ fn generate_fire(dir: &Path) -> Result<()> {
     Manifest::from_json_str(&text).context("generated fire manifest is invalid")?;
     fs::write(dir.join("manifest.json"), text)?;
     Ok(())
+}
+
+/// Write one asset and return the manifest-relative path.
+fn write_audio(
+    dir: &Path,
+    name: &str,
+    channels: u16,
+    samples: &[i16],
+    format: AudioFormat,
+) -> Result<String> {
+    let relative = format!("audio/{name}.{}", format.extension());
+    let path = dir.join(&relative);
+    match format {
+        AudioFormat::Wav => write_wav(&path, channels, samples)?,
+        AudioFormat::Opus => {
+            let bitrate = if channels == 1 { 64_000 } else { 96_000 };
+            opus_encode::encode_opus(&path, samples, channels, RATE, bitrate)?;
+        }
+    }
+    Ok(relative)
 }
 
 fn rain_source(seed: u64, frames: usize) -> Vec<f32> {

@@ -15,7 +15,7 @@ pub enum EngineError {
     #[error("WAV error: {0}")]
     Wav(#[from] hound::Error),
 
-    #[error("unsupported audio format {0:?} (this build decodes WAV only)")]
+    #[error("unsupported audio format {0:?} (this build decodes WAV and Ogg/Opus)")]
     UnsupportedFormat(String),
 
     #[error("failed to decode {path}: {message}")]
