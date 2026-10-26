@@ -208,6 +208,22 @@ High-altitude wind, distant waterfalls, sky-whale calls.
 - **Events:** sky-whale calls (FM/formant), bird-like calls, wind chimes.
 - **Mood:** open, airy, adventurous but calm.
 
+### 8. Crystal Halls (`crystal-halls`)
+
+A vast cavern of resonant crystals: long glassy drones, soft wind through
+formations, water drips, and rare chimes.
+
+- **Bed A:** inharmonic crystal drone — additive partials at bell-like ratios,
+  very slow detune and shimmer.
+- **Bed B:** cave air/wind plus sparse water-drip detail.
+- **Events:** crystal chimes (long decay), glassy creaks, water drips, distant
+  resonant swells.
+- **Mood:** luminous, spacious, cold but safe.
+- **Sleep safety:** keep the shimmer soft and low-passed; no shattering glass,
+  no piercing highs, and chimes at least 20–60 s apart.
+- **Synthesis:** modal resonators with inharmonic ratios, additive drone,
+  filtered noise, bubbles/drips, and a long reverb for the hall.
+
 ## Manifest sketches
 
 ### Deep Space Cabin
