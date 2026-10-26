@@ -1,0 +1,13 @@
+[package]
+name = "oniris-jni"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+jni.workspace = true
+oniris-core = { path = "../oniris-core" }
+serde_json.workspace = true

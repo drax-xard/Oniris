@@ -1,0 +1,34 @@
+# Rust
+/target/
+core/target/
+**/*.rs.bk
+
+# Android / Gradle
+.gradle/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.iml
+*.apk
+*.aab
+android/app/src/main/jniLibs/
+
+# Generated audio / packs
+/packs/
+*.wav
+*.mp3
+*.opus
+*.ogg
+*.flac
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local
+*.log
+/tmp/

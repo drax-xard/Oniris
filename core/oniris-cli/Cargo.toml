@@ -1,0 +1,19 @@
+[package]
+name = "oniris-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "oniris"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+hound.workspace = true
+oniris-core = { path = "../oniris-core" }
+oniris-pack = { path = "../oniris-pack" }
+rand.workspace = true
+rand_chacha.workspace = true
+serde_json.workspace = true
