@@ -149,6 +149,15 @@ blocks to report integrated LUFS, true peak (4x oversampled), and sample peak.
 that would exceed the true-peak ceiling. Both decode at 48 kHz first, so WAV
 masters at other rates are resampled once by the same sinc path as playback.
 
+## Mix transitions
+
+`set_mix` is sample-continuous while playing. Packs present in both mixes keep
+their bed position, LFO phase, and event schedule; added packs fade in and
+removed packs fade out over a configurable duration (2 s by default). Event
+voices follow their pack's fade and per-pack gain, so removing a pack does not
+leave a dry event behind. When the engine is stopped or paused, mix changes
+apply immediately.
+
 ## Pack archives
 
 `.onirispack` files are deterministic zips written and validated by
@@ -161,7 +170,8 @@ module through JNI so there is one set of security rules.
 ## Known scaffold gaps
 
 - Media3 `SimpleBasePlayer` adapter (using `MediaSessionCompat`).
-- Crossfade when changing mixes while playing.
+- Android live-mix control path (the engine already crossfades `set_mix` changes;
+  the app still rebuilds the engine when pack selection changes).
 - Android download manager and pack import UI (the archive format and Rust
   extraction path are implemented).
 - Real content sourcing, listening QA, and final loudness decisions (measurement

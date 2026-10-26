@@ -6,12 +6,12 @@
 **Goal:** Mix seamless, non-repetitive soundscapes, run all night on battery, and make new content cheap to add.
 
 **Progress (Oct 2026):** Rust core, pack spec, CLI, JNI, Android shell,
-Ogg/Opus decode/encode, deterministic `.onirispack` packaging/extraction, and
-EBU R128 loudness/true-peak measurement and normalization are implemented and
-build. The debug APK runs on an Android 36 emulator: pack discovery,
-play/pause, media session, foreground notification, audio focus, and wake lock
-all work. Real content, Android pack import, OEM testing, listening QA, and the
-8-hour battery soak remain.
+Ogg/Opus decode/encode, deterministic `.onirispack` packaging/extraction, EBU
+R128 loudness/true-peak measurement and normalization, and live mix crossfades
+are implemented and build. The debug APK runs on an Android 36 emulator: pack
+discovery, play/pause, media session, foreground notification, audio focus, and
+wake lock all work. Real content, Android pack import, OEM testing, listening QA,
+and the 8-hour battery soak remain.
 
 **Local QA (Oct 2026):** a 60-minute rain+fire render completes in about 6 s with
 ~17 MB peak RSS on the development machine. `oniris-core/tests/golden.rs` covers
@@ -176,7 +176,7 @@ Costs and benefits:
 - CPU is dominated by memory reads and a few multiply-adds: well under 2% of one core on modern phones.
 - This is dramatically lighter than running 3–4 ExoPlayer instances with live decoders all night.
 
-The tradeoff is memory and a short load delay when changing mixes. Both are acceptable for this product. If a pack grows beyond the budget, the loader can stream that one bed later without changing the API.
+The tradeoff is memory and a short load delay when changing mixes. Both are acceptable for this product. The engine crossfades live `set_mix` changes over 2 s, so the only audible gap is the time needed to decode newly added packs. If a pack grows beyond the budget, the loader can stream that one bed later without changing the API.
 
 ### 5.3 Why a Rust core
 
