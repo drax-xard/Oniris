@@ -5,11 +5,12 @@
 **Working name:** Oniris (Oneiros = dream).  
 **Goal:** Mix seamless, non-repetitive soundscapes, run all night on battery, and make new content cheap to add.
 
-**Progress (Oct 2026):** Rust core, pack spec, CLI, JNI, Android shell, and
-Ogg/Opus decode/encode are implemented and build. The debug APK runs on an
-Android 36 emulator: pack discovery, play/pause, media session, foreground
-notification, audio focus, and wake lock all work. Real content, OEM testing,
-listening QA, and the 8-hour battery soak remain.
+**Progress (Oct 2026):** Rust core, pack spec, CLI, JNI, Android shell,
+Ogg/Opus decode/encode, and deterministic `.onirispack` packaging/extraction are
+implemented and build. The debug APK runs on an Android 36 emulator: pack
+discovery, play/pause, media session, foreground notification, audio focus, and
+wake lock all work. Real content, Android pack import, OEM testing, listening QA,
+and the 8-hour battery soak remain.
 
 ## Locked decisions (v1)
 
@@ -297,6 +298,7 @@ Rules:
 - All audio 48 kHz; beds stereo; events mono or stereo.
 - `loop.endSample` is authoritative; the engine ignores container padding.
 - Packs are data, not code. Validate paths (zip-slip), sizes, sample rates, loop bounds, and JSON schema. Reject unknown schema major versions.
+- `.onirispack` archives are deterministic zips with fixed timestamps and sorted entries. `oniris-cli pack`, `verify-pack`, and `unpack` implement the format and the security checks; compute the SHA-256 printed by `pack` for download manifests.
 - Manifest is versioned; the loader supports `schemaVersion` 1 and migrates where possible.
 - Tags drive search, suggestions, and compatibility rules. Add content flags (`thunder`, `animals`) for user warnings.
 - Optional `compatibility` field to prevent clashing mixes (e.g., `excludes: ["underwater"]`).
@@ -518,7 +520,9 @@ Assumes one developer working roughly full-time, with content sourcing in parall
 (playback spine) are substantially done; 60-minute listening QA is still open.
 Phase 3 (mixer UX) has pack selection, master volume, and the timer; presets,
 per-pack volume, lock-screen metadata, and a quick tile are open. Phase 4
-(content) is next and should use the new Opus encoder in `oniris-cli`.
+(content) is next and should use the new Opus encoder and `.onirispack` packer
+in `oniris-cli`; the remaining distribution work is the Android download/import
+UI.
 
 Content sourcing and licensing start in week 1; they are the most likely schedule risk.
 

@@ -27,6 +27,27 @@ Rules:
   possible; CC-BY requires attribution in the app.
 - Art is optional; 512×512 WebP is the target.
 
+## Distribution archive (`.onirispack`)
+
+A `.onirispack` is a zip whose root contains `manifest.json`, the referenced
+`audio/` and `art/` files, and optional `LICENSE`/`README.md`. Directory entries
+are allowed. Symlinks, encryption, absolute paths, `..` segments, backslashes,
+duplicate names, reserved characters, and unsupported file types are rejected.
+
+Archives are deterministic: entries are sorted and timestamps are fixed, so
+packing the same directory twice produces the same SHA-256. The CLI prints the
+digest for release manifests and download verification.
+
+```bash
+oniris pack packs/test-rain test-rain.onirispack
+oniris verify-pack test-rain.onirispack --sha256 <hex>
+oniris unpack test-rain.onirispack /tmp/test-rain
+```
+
+Import limits: 128 entries, 64 MiB per entry, 512 MiB total uncompressed, and a
+256 KiB manifest. Extraction happens in a temporary directory and is renamed
+into place only after the whole archive validates.
+
 ## Manifest (schema version 1)
 
 ```json
@@ -154,8 +175,9 @@ The loader must:
 - Treat audio and JSON as untrusted input.
 
 `cargo run -p oniris-cli -- validate <dir>` performs structural, path, and decode
-validation for both WAV and Ogg/Opus assets. Add a zip extractor with the same
-rules before supporting `.onirispack` imports.
+validation for both WAV and Ogg/Opus assets. `pack`, `verify-pack`, and `unpack`
+apply the same rules to `.onirispack` archives; the Android import path should
+reuse the Rust archive module via JNI rather than reimplementing zip handling.
 
 ## Authoring checklist
 

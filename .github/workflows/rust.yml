@@ -60,3 +60,14 @@ jobs:
           cargo run --manifest-path core/Cargo.toml -p oniris-cli -- render \
             --pack /tmp/packs-wav/test-rain --pack /tmp/packs-wav/test-fire \
             --minutes 0.25 --out /tmp/oniris-wav.wav --fade-in 0.5
+
+      - name: Package and unpack an archive
+        run: |
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            pack /tmp/packs-opus/test-rain /tmp/test-rain.onirispack
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            verify-pack /tmp/test-rain.onirispack
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            unpack /tmp/test-rain.onirispack /tmp/test-rain-unpacked
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            validate /tmp/test-rain-unpacked

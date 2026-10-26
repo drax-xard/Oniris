@@ -48,9 +48,10 @@ repository as all-rights-reserved.
 ## Third-party code
 
 The audio core uses `opus-pure` (BSD-3-Clause) for Ogg/Opus decode and encode.
-Its copyright notice must ship with binary distributions; add it to the in-app
-attribution/license screen before the first public release. Keep the
-dependency list and notices current as crates are added.
+Pack archives use `zip` (MIT), `sha2` (MIT/Apache-2.0), and `tempfile`
+(MIT/Apache-2.0). Their copyright notices must ship with binary distributions;
+add them to the in-app attribution/license screen before the first public
+release. Keep the dependency list and notices current as crates are added.
 
 ## Launch content sources
 

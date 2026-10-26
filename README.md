@@ -4,12 +4,12 @@ Oniris is a battery-first Android sleep-soundscape app. It mixes seamless ambien
 
 The audio engine is written in Rust so the same sound model can run on Android today and on desktop, Raspberry Pi, or the web later.
 
-**Status:** early scaffold, with the production audio format working end to end. The Rust core, pack format, CLI, Android shell, and Ogg/Opus decode/encode are in place, and the Android debug APK builds with JDK 21 + SDK 36. Real sound packs and on-device/battery validation are next.
+**Status:** early scaffold, with the production audio format and pack distribution working end to end. The Rust core, pack format, deterministic `.onirispack` archives, CLI, Android shell, and Ogg/Opus decode/encode are in place, and the Android debug APK builds with JDK 21 + SDK 36. Real sound packs, Android pack import UI, and on-device/battery validation are next.
 
 ## What works today
 
 - Rust core: manifest validation, Ogg/Opus and WAV decode/resample, seamless bed loops, randomized event voices, LFOs, fades, sleep timer, lookahead limiter.
-- `oniris` CLI: generate synthetic Opus/WAV test packs, encode Opus, validate, render, analyze.
+- `oniris` CLI: generate synthetic Opus/WAV test packs, encode Opus, validate, render, analyze, and package/verify/unpack `.onirispack` archives.
 - Android app: pack library, multi-pack selection, volume, sleep timer, foreground media notification, audio focus, wake lock, persisted settings.
 - Native library builds for `arm64-v8a`, `armeabi-v7a`, and `x86_64`; debug and release APKs assemble.
 
@@ -27,9 +27,9 @@ Smoke-tested on an Android 36 x86_64 emulator: pack discovery, play/pause, media
 ```
 android/                 Android app (Kotlin, Compose, media service)
 core/                    Rust workspace
-  oniris-pack/           Manifest types, validation, path safety
+  oniris-pack/           Manifest types, validation, archives, path safety
   oniris-core/           Decoder, mixer, scheduler, limiter, sleep timer
-  oniris-cli/            render / validate / analyze / encode-opus / gen-test-packs
+  oniris-cli/            render / validate / analyze / encode-opus / pack / gen-test-packs
   oniris-jni/            JNI bridge for Android
 docs/                    Plan, architecture, pack format, build notes
 packs/                   Generated test packs (ignored by git)
@@ -56,6 +56,14 @@ cargo run --manifest-path core/Cargo.toml -p oniris-cli -- validate packs/test-r
 # Encode a WAV master as a gapless 48 kHz Opus asset
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
   encode-opus path/to/master.wav /tmp/master.opus --bitrate 96000
+
+# Package, verify, and unpack a distributable archive
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+  pack packs/test-rain /tmp/test-rain.onirispack
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+  verify-pack /tmp/test-rain.onirispack
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+  unpack /tmp/test-rain.onirispack /tmp/test-rain-unpacked
 
 # Render a 10-minute mix to WAV
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \

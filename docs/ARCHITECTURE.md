@@ -141,11 +141,21 @@ platform-neutral.
 - The master limiter has 5 ms of lookahead and a 100 ms release. It is a
   sample-peak limiter (not true-peak) and never lets a sample exceed -1.5 dBFS.
 
+## Pack archives
+
+`.onirispack` files are deterministic zips written and validated by
+`oniris-pack::archive`. Entry names, types, sizes, and the manifest are checked
+before extraction; files are unpacked into a temporary directory and renamed
+into place only after the whole archive validates. The CLI exposes this as
+`pack`, `verify-pack`, and `unpack`. Android import should call the same Rust
+module through JNI so there is one set of security rules.
+
 ## Known scaffold gaps
 
 - Media3 `SimpleBasePlayer` adapter (using `MediaSessionCompat`).
 - Crossfade when changing mixes while playing.
-- Download manager, pack import UI, and bundled pack installation for `.onirispack` files.
+- Android download manager and pack import UI (the archive format and Rust
+  extraction path are implemented).
 - Real content and loudness normalization pipeline.
 - Real-device battery, underrun, and thermal soak testing.
 

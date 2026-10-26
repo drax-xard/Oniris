@@ -17,11 +17,13 @@ android/app/src/main/jniLibs/
 
 # Generated audio / packs
 /packs/
+/packs-wav/
 *.wav
 *.mp3
 *.opus
 *.ogg
 *.flac
+*.onirispack
 
 # OS / editors
 .DS_Store

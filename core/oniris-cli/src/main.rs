@@ -4,12 +4,12 @@ mod opus_encode;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use generate::AudioFormat;
 use hound::{WavReader, WavSpec, WavWriter};
 use oniris_core::{decode_audio, Engine, MixEntry, MixSpec, DEFAULT_BLOCK_FRAMES};
-use oniris_pack::Manifest;
+use oniris_pack::{pack_dir, unpack_archive, verify_archive, Manifest};
 
 #[derive(Debug, Parser)]
 #[command(name = "oniris", version, about = "Oniris soundscape core tools")]
@@ -61,6 +61,26 @@ enum Command {
         #[arg(long, value_enum, default_value = "opus")]
         format: AudioFormat,
     },
+    /// Package a pack directory as a deterministic `.onirispack` archive.
+    Pack {
+        /// Pack directory containing `manifest.json`.
+        dir: PathBuf,
+        /// Output `.onirispack` path.
+        out: PathBuf,
+    },
+    /// Validate a `.onirispack` archive without extracting it.
+    VerifyPack {
+        archive: PathBuf,
+        /// Expected lowercase hex SHA-256 of the archive.
+        #[arg(long)]
+        sha256: Option<String>,
+    },
+    /// Validate and extract a `.onirispack` into a new or empty directory.
+    Unpack {
+        archive: PathBuf,
+        /// Destination directory.
+        dir: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -82,7 +102,55 @@ fn main() -> Result<()> {
             bitrate,
         } => encode_opus_file(&input, &output, bitrate),
         Command::GenTestPacks { out, format } => generate::generate_test_packs(&out, format),
+        Command::Pack { dir, out } => pack_archive(&dir, &out),
+        Command::VerifyPack { archive, sha256 } => verify_pack(&archive, sha256.as_deref()),
+        Command::Unpack { archive, dir } => unpack_pack(&archive, &dir),
     }
+}
+
+fn pack_archive(dir: &Path, out: &Path) -> Result<()> {
+    let info =
+        pack_dir(dir, out).with_context(|| format!("failed to package {}", dir.display()))?;
+    println!(
+        "packed {} -> {} ({:.1} kB, {} files, sha256 {})",
+        info.manifest.id,
+        out.display(),
+        info.bytes as f32 / 1024.0,
+        info.files,
+        info.sha256,
+    );
+    Ok(())
+}
+
+fn verify_pack(archive: &Path, expected: Option<&str>) -> Result<()> {
+    let info = verify_archive(archive)
+        .with_context(|| format!("failed to verify {}", archive.display()))?;
+    if let Some(expected) = expected {
+        if !info.sha256.eq_ignore_ascii_case(expected) {
+            bail!("SHA-256 mismatch: expected {expected}, got {}", info.sha256);
+        }
+    }
+    println!(
+        "OK {} ({:.1} kB, {} files, sha256 {})",
+        info.manifest.id,
+        info.bytes as f32 / 1024.0,
+        info.files,
+        info.sha256,
+    );
+    Ok(())
+}
+
+fn unpack_pack(archive: &Path, dir: &Path) -> Result<()> {
+    let info = unpack_archive(archive, dir)
+        .with_context(|| format!("failed to unpack {}", archive.display()))?;
+    println!(
+        "unpacked {} into {} ({} files, sha256 {})",
+        info.manifest.id,
+        dir.display(),
+        info.files,
+        info.sha256,
+    );
+    Ok(())
 }
 
 fn encode_opus_file(input: &Path, output: &Path, bitrate: i32) -> Result<()> {

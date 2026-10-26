@@ -10,6 +10,13 @@ use std::path::{Component, Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub mod archive;
+
+pub use archive::{
+    archive_path_for, pack_dir, sha256_file, unpack_archive, verify_archive, ArchiveInfo,
+    ARCHIVE_EXTENSION,
+};
+
 pub const SCHEMA_VERSION: u32 = 1;
 
 /// Validated pack identifier: lowercase ASCII letters, digits, and `-`.
@@ -23,6 +30,8 @@ pub enum PackError {
     Json(#[from] serde_json::Error),
     #[error("invalid pack: {0}")]
     Validation(String),
+    #[error("archive error: {0}")]
+    Archive(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

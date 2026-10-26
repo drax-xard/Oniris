@@ -48,10 +48,19 @@ cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
 # Encode a WAV master as a gapless 48 kHz Ogg/Opus asset
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
   encode-opus master.wav master.opus --bitrate 96000
+
+# Package and verify a distributable archive
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+  pack packs/test-rain /tmp/test-rain.onirispack
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+  verify-pack /tmp/test-rain.onirispack
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+  unpack /tmp/test-rain.onirispack /tmp/test-rain
 ```
 
 Ogg/Opus uses the pure-Rust `opus-pure` crate: no libopus, CMake, or NDK codec
-build is required. Generated audio is ignored by git.
+build is required. Archives use the pure-Rust `zip` crate. Generated audio is
+ignored by git.
 
 ## Native library for Android
 
