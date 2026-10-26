@@ -276,6 +276,44 @@ fun OnirisApp(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
+                if (packs.any { it.credits.isNotEmpty() }) {
+                    Spacer(Modifier.height(24.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+                    Spacer(Modifier.height(16.dp))
+                    Text("Licenses & credits", style = MaterialTheme.typography.titleMedium)
+                    packs.filter { it.credits.isNotEmpty() }.forEach { pack ->
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            text = pack.name,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        pack.credits.forEach { credit ->
+                            val line = buildString {
+                                append(credit.title)
+                                append(" — ")
+                                append(credit.author)
+                                append(" (")
+                                append(credit.license)
+                                if (credit.modified) append(", edited")
+                                append(")")
+                            }
+                            Text(
+                                text = line,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            if (credit.source.isNotBlank()) {
+                                Text(
+                                    text = credit.source,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+
                 Spacer(Modifier.height(24.dp))
             }
         }

@@ -44,6 +44,8 @@ enum Command {
     },
     /// Validate a pack directory and decode every asset.
     Validate { path: PathBuf },
+    /// Print a pack's license and attribution credits.
+    Credits { path: PathBuf },
     /// Print basic information about a WAV render.
     Analyze {
         path: PathBuf,
@@ -84,6 +86,8 @@ enum Command {
         #[arg(long, value_enum, default_value = "opus")]
         format: AudioFormat,
     },
+    /// Generate the first default pack: layered pink/brown noise (CC0).
+    GenNoisePack { out: PathBuf },
     /// Package a pack directory as a deterministic `.onirispack` archive.
     Pack {
         /// Pack directory containing `manifest.json`.
@@ -118,6 +122,7 @@ fn main() -> Result<()> {
             timer_minutes,
         } => render(&packs, minutes, &out, seed, fade_in, timer_minutes),
         Command::Validate { path } => validate(&path),
+        Command::Credits { path } => print_credits(&path),
         Command::Analyze {
             path,
             click_threshold,
@@ -136,6 +141,7 @@ fn main() -> Result<()> {
             bitrate,
         } => normalize_file(&input, &output, target_lufs, true_peak, bitrate),
         Command::GenTestPacks { out, format } => generate::generate_test_packs(&out, format),
+        Command::GenNoisePack { out } => generate::generate_noise_pack(&out),
         Command::Pack { dir, out } => pack_archive(&dir, &out),
         Command::VerifyPack { archive, sha256 } => verify_pack(&archive, sha256.as_deref()),
         Command::Unpack { archive, dir } => unpack_pack(&archive, &dir),
@@ -425,10 +431,39 @@ fn validate(path: &Path) -> Result<()> {
     println!("  license:   {}", manifest.license);
     println!("  beds:      {}", pack.bed_count());
     println!("  events:    {}", pack.event_count());
+    if !manifest.credits.is_empty() {
+        println!("  credits:   {}", manifest.credits.len());
+    }
     println!(
         "  decoded:   {:.2} MB",
         pack.decoded_bytes() as f32 / (1024.0 * 1024.0)
     );
+    Ok(())
+}
+
+fn print_credits(path: &Path) -> Result<()> {
+    let manifest = Manifest::load(path)
+        .with_context(|| format!("failed to load manifest from {}", path.display()))?;
+
+    println!("{} ({})", manifest.display_name("en"), manifest.id);
+    println!("  license: {}", manifest.license);
+    if manifest.credits.is_empty() {
+        println!("  credits: none");
+        return Ok(());
+    }
+
+    for credit in &manifest.credits {
+        let asset = credit.asset.as_deref().unwrap_or("pack");
+        println!("  - {asset}: {} by {}", credit.title, credit.author);
+        println!(
+            "    license: {}{}",
+            credit.license,
+            if credit.modified { " (edited)" } else { "" }
+        );
+        if !credit.source.trim().is_empty() {
+            println!("    source:  {}", credit.source);
+        }
+    }
     Ok(())
 }
 

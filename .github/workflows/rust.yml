@@ -61,6 +61,15 @@ jobs:
             --pack /tmp/packs-wav/test-rain --pack /tmp/packs-wav/test-fire \
             --minutes 0.25 --out /tmp/oniris-wav.wav --fade-in 0.5
 
+      - name: Generate the default noise pack
+        run: |
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            gen-noise-pack /tmp/packs-opus
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            validate /tmp/packs-opus/pure-noise
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            credits /tmp/packs-opus/pure-noise
+
       - name: Measure and normalize loudness
         run: |
           cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \

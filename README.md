@@ -4,12 +4,12 @@ Oniris is a battery-first Android sleep-soundscape app. It mixes seamless ambien
 
 The audio engine is written in Rust so the same sound model can run on Android today and on desktop, Raspberry Pi, or the web later.
 
-**Status:** early scaffold, with the production audio format and pack distribution working end to end. The Rust core, pack format, deterministic `.onirispack` archives, CLI, Android shell, and Ogg/Opus decode/encode are in place, and the Android debug APK builds with JDK 21 + SDK 36. Real sound packs, Android pack import UI, and on-device/battery validation are next.
+**Status:** early scaffold, with the production audio format and pack distribution working end to end. The Rust core, pack format, deterministic `.onirispack` archives, attribution credits, a generated Pure Noise default pack, CLI, Android shell, and Ogg/Opus decode/encode are in place, and the Android debug APK builds with JDK 21 + SDK 36. Field-recorded sound packs, Android pack import UI, and on-device/battery validation are next.
 
 ## What works today
 
 - Rust core: manifest validation, Ogg/Opus and WAV decode/resample, seamless bed loops, randomized event voices, live mix crossfades, LFOs, fades, sleep timer, lookahead limiter.
-- `oniris` CLI: generate synthetic Opus/WAV test packs, encode Opus, validate, render, analyze, measure loudness/true peak, normalize, and package/verify/unpack `.onirispack` archives.
+- `oniris` CLI: generate synthetic Opus/WAV test packs, generate the default Pure Noise pack, encode Opus, validate, print credits, render, analyze, measure loudness/true peak, normalize, and package/verify/unpack `.onirispack` archives.
 - `oniris analyze`: peak, RMS, maximum sample-to-sample delta, and large-jump counts for render QA.
 - Android app: pack library, multi-pack selection, volume, sleep timer, foreground media notification, audio focus, wake lock, persisted settings.
 - Native library builds for `arm64-v8a`, `armeabi-v7a`, and `x86_64`; debug and release APKs assemble.
@@ -30,7 +30,7 @@ android/                 Android app (Kotlin, Compose, media service)
 core/                    Rust workspace
   oniris-pack/           Manifest types, validation, archives, path safety
   oniris-core/           Decoder, mixer, scheduler, limiter, sleep timer
-  oniris-cli/            render / validate / analyze / encode-opus / loudness / normalize / pack
+  oniris-cli/            render / validate / credits / analyze / encode-opus / loudness / normalize / pack
   oniris-jni/            JNI bridge for Android
 docs/                    Plan, architecture, pack format, content sources, build notes
 packs/                   Generated test packs (ignored by git)
@@ -46,6 +46,13 @@ cargo test --manifest-path core/Cargo.toml --workspace
 
 # Generate synthetic test packs (rain + fire); Ogg/Opus by default
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- gen-test-packs packs
+
+# Generate the first default pack: layered pink/brown noise (CC0)
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- gen-noise-pack packs
+
+# Validate a pack and print its attribution credits
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- validate packs/pure-noise
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- credits packs/pure-noise
 
 # Lossless fallback for debugging or codec A/B tests
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \

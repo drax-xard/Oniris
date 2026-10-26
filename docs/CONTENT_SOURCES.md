@@ -26,8 +26,9 @@ permits "use in a project" is not enough if it forbids supplying the audio as an
 asset pack.
 
 **Recommended mix:** CC0/PD for the bulk of the beds, CC BY only where the
-recording quality clearly justifies the attribution burden. Add a manifest
-`credits` field and an in-app attribution screen before shipping any CC BY pack.
+recording quality clearly justifies the attribution burden. The manifest
+`credits` array and the app's “Licenses & credits” section are implemented; use
+them for every CC BY asset.
 
 ## License matrix
 
@@ -365,9 +366,11 @@ Rules:
 
 ## Immediate next steps
 
-1. Add the manifest `credits` field and attribution screen.
-2. Build the **Pure Noise** pack first (no external dependencies).
+1. **Done:** manifest `credits`, `oniris credits`, and an Android licenses
+   section. The Android UI still needs a device build to verify.
+2. **Done:** Pure Noise pack generator (`oniris gen-noise-pack packs`), with
+   two normalized CC0 beds and credits.
 3. Audition 3–5 candidates for Rainy Night and Seaside from Freesound CC0 and
-   NPS; record the license/provenance in the source log.
+   NPS; record the license/provenance in `sources.csv`.
 4. Add Forest Deep and Cabin Fire once the bed quality is confirmed.
 5. Keep a `CREDITS.md`/`LICENSE` per pack and a dated license archive.

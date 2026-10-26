@@ -59,7 +59,8 @@ Approved audio sources, license rules, curated searches, and the first-pack plan
 are documented in [`CONTENT_SOURCES.md`](CONTENT_SOURCES.md). In short: use CC0,
 CC BY, and verified public-domain material; avoid NC/ND/SA and custom licenses
 that restrict app use or redistribution. Keep a dated license copy and a source
-log for every master.
+log for every master. Per-asset attribution lives in the manifest `credits`
+array and is shown in the app's “Licenses & credits” section.
 
 ## Launch content sources
 

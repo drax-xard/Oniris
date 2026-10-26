@@ -40,6 +40,10 @@ cargo run --manifest-path ../../core/Cargo.toml -p oniris-cli -- \
   normalize master.wav master-normalized.wav --target-lufs -23 --true-peak -1.5
 
 cargo run --manifest-path ../../core/Cargo.toml -p oniris-cli -- validate <pack-dir>
+cargo run --manifest-path ../../core/Cargo.toml -p oniris-cli -- credits <pack-dir>
+
+# First default pack: layered pink/brown noise, synthetic and CC0
+cargo run --manifest-path ../../core/Cargo.toml -p oniris-cli -- gen-noise-pack <out-dir>
 
 # Pack, verify, and unpack a distributable archive
 cargo run --manifest-path ../../core/Cargo.toml -p oniris-cli -- \

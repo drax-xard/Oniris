@@ -86,6 +86,16 @@ into place only after the whole archive validates.
       "maxVoices": 1
     }
   ],
+  "credits": [
+    {
+      "asset": "audio/rain.opus",
+      "title": "Rain",
+      "author": "Example Recordist",
+      "source": "https://example.com/rain",
+      "license": "CC-BY-4.0",
+      "modified": true
+    }
+  ],
   "compatibility": { "excludes": [] }
 }
 ```
@@ -107,6 +117,7 @@ into place only after the whole archive validates.
 | `beds` | yes | 1–2 beds. |
 | `events` | no | Up to 16 event types. |
 | `compatibility` | no | `excludes` lists pack IDs that should not be mixed. |
+| `credits` | no | Up to 64 attribution entries; see “Credit fields”. |
 
 ### Bed fields
 
@@ -142,6 +153,24 @@ the engine wraps at `endSample` without an additional crossfade.
 Events are scheduled independently per active pack. The engine picks a variant,
 gain, and pan uniformly within the ranges. Use wider pan ranges for small,
 localized sounds and narrow ranges for thunder/rumble.
+
+### Credit fields
+
+Required for CC BY assets; useful for CC0 and public-domain sources too.
+
+| Field | Required | Notes |
+|---|---|---|
+| `asset` | no | Safe relative path of an asset referenced by the manifest. Omit for a pack-level credit. |
+| `title` | yes | Original recording or work title. |
+| `author` | yes | Recordist, creator, or organization. |
+| `source` | no | URL of the source page, or `synthetic` for generated audio. |
+| `license` | yes | SPDX identifier (`CC0-1.0`, `CC-BY-4.0`) or `Public Domain`. |
+| `modified` | no | `true` if trimmed, looped, EQ'd, normalized, or re-encoded. |
+
+If any asset is CC BY, the pack-level `license` should be the most restrictive
+license in the pack and every CC BY asset must appear in `credits`. The app shows
+these entries on its licenses screen; `oniris credits <pack>` prints them for
+review.
 
 ## Audio format
 

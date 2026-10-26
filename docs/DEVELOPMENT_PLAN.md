@@ -7,11 +7,12 @@
 
 **Progress (Oct 2026):** Rust core, pack spec, CLI, JNI, Android shell,
 Ogg/Opus decode/encode, deterministic `.onirispack` packaging/extraction, EBU
-R128 loudness/true-peak measurement and normalization, and live mix crossfades
-are implemented and build. The debug APK runs on an Android 36 emulator: pack
+R128 loudness/true-peak measurement and normalization, live mix crossfades,
+manifest attribution credits, and a generated **Pure Noise** default pack are
+implemented and build. The debug APK runs on an Android 36 emulator: pack
 discovery, play/pause, media session, foreground notification, audio focus, and
-wake lock all work. Real content, Android pack import, OEM testing, listening QA,
-and the 8-hour battery soak remain.
+wake lock all work. Real field-recorded content, Android pack import, OEM
+testing, listening QA, and the 8-hour battery soak remain.
 
 **Local QA (Oct 2026):** a 60-minute rain+fire render completes in about 6 s with
 ~17 MB peak RSS on the development machine. `oniris-core/tests/golden.rs` covers
@@ -535,7 +536,8 @@ Phase 3 (mixer UX) has pack selection, master volume, and the timer; presets,
 per-pack volume, lock-screen metadata, and a quick tile are open. Phase 4
 (content) is next and should use the new Opus encoder, `.onirispack` packer, and
 loudness/normalize tools in `oniris-cli`; the remaining distribution work is the
-Android download/import UI.
+Android download/import UI. Pure Noise is generated from the CLI; the
+field-recorded Rainy Night, Seaside, Cabin Fire, and Forest Deep packs are next.
 
 Content sourcing and licensing start in week 1; they are the most likely schedule risk.
 

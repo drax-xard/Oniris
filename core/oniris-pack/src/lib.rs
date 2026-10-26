@@ -58,6 +58,24 @@ pub struct Manifest {
     pub events: Vec<Event>,
     #[serde(default)]
     pub compatibility: Compatibility,
+    /// Per-asset or pack-level attribution, required for CC BY content.
+    #[serde(default)]
+    pub credits: Vec<Credit>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Credit {
+    /// Safe relative asset path, or omitted for a pack-level credit.
+    #[serde(default)]
+    pub asset: Option<String>,
+    pub title: String,
+    pub author: String,
+    #[serde(default)]
+    pub source: String,
+    pub license: String,
+    #[serde(default)]
+    pub modified: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -388,6 +406,33 @@ impl Manifest {
             }
         }
 
+        if self.credits.len() > 64 {
+            issues.push("at most 64 credits are supported".to_string());
+        }
+        let assets: std::collections::BTreeSet<&str> = self.asset_paths().collect();
+        for (index, credit) in self.credits.iter().enumerate() {
+            if credit.title.trim().is_empty() {
+                issues.push(format!("credit {index}: title is required"));
+            }
+            if credit.author.trim().is_empty() {
+                issues.push(format!("credit {index}: author is required"));
+            }
+            if credit.license.trim().is_empty() {
+                issues.push(format!("credit {index}: license is required"));
+            }
+            if let Some(asset) = &credit.asset {
+                if !is_safe_relative_path(asset) {
+                    issues.push(format!(
+                        "credit {index}: asset must be a safe relative path (got {asset:?})"
+                    ));
+                } else if !assets.contains(asset.as_str()) {
+                    issues.push(format!(
+                        "credit {index}: asset {asset:?} is not referenced by the manifest"
+                    ));
+                }
+            }
+        }
+
         if issues.is_empty() {
             Ok(())
         } else {
@@ -576,5 +621,63 @@ mod tests {
 
         std::fs::remove_file(dir.path().join("audio/rain.wav")).unwrap();
         assert!(manifest.validate_files(dir.path()).is_err());
+    }
+
+    #[test]
+    fn parses_and_validates_credits() {
+        let mut value: serde_json::Value = serde_json::from_str(&valid_manifest_json()).unwrap();
+        value["credits"] = serde_json::json!([
+            {
+                "asset": "audio/rain.wav",
+                "title": "Rain",
+                "author": "Tester",
+                "source": "https://example.com/rain",
+                "license": "CC0-1.0",
+                "modified": true
+            },
+            {
+                "title": "Oniris",
+                "author": "Oniris",
+                "license": "CC0-1.0"
+            }
+        ]);
+
+        let manifest = Manifest::from_json_str(&value.to_string()).unwrap();
+        assert_eq!(manifest.credits.len(), 2);
+        assert_eq!(manifest.credits[0].asset.as_deref(), Some("audio/rain.wav"));
+        assert!(manifest.credits[0].modified);
+        assert!(manifest.credits[1].asset.is_none());
+    }
+
+    #[test]
+    fn rejects_bad_credits() {
+        let mut value: serde_json::Value = serde_json::from_str(&valid_manifest_json()).unwrap();
+        value["credits"] = serde_json::json!([
+            {
+                "asset": "../evil.wav",
+                "title": "Unsafe",
+                "author": "Tester",
+                "license": "CC0-1.0"
+            },
+            {
+                "asset": "audio/missing.wav",
+                "title": "Missing",
+                "author": "Tester",
+                "license": "CC0-1.0"
+            },
+            {
+                "title": "",
+                "author": "",
+                "license": ""
+            }
+        ]);
+
+        let error = Manifest::from_json_str(&value.to_string()).unwrap_err();
+        let message = error.to_string();
+        assert!(message.contains("safe relative path"));
+        assert!(message.contains("not referenced"));
+        assert!(message.contains("title is required"));
+        assert!(message.contains("author is required"));
+        assert!(message.contains("license is required"));
     }
 }

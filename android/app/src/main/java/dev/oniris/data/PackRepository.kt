@@ -15,7 +15,19 @@ data class PackInfo(
     val tags: List<String>,
     val bedCount: Int,
     val eventCount: Int,
+    val license: String,
+    val credits: List<Credit>,
     val directory: File,
+)
+
+/** Attribution for one pack asset, or for the pack as a whole. */
+data class Credit(
+    val asset: String?,
+    val title: String,
+    val author: String,
+    val source: String,
+    val license: String,
+    val modified: Boolean,
 )
 
 /**
@@ -93,6 +105,29 @@ class PackRepository(context: Context) {
                 }
             }
 
+            val creditsJson = json.optJSONArray("credits")
+            val credits = buildList {
+                if (creditsJson != null) {
+                    for (index in 0 until creditsJson.length()) {
+                        val credit = creditsJson.optJSONObject(index) ?: continue
+                        val title = credit.optString("title").trim()
+                        val author = credit.optString("author").trim()
+                        val license = credit.optString("license").trim()
+                        if (title.isEmpty() || author.isEmpty() || license.isEmpty()) continue
+                        add(
+                            Credit(
+                                asset = credit.optString("asset").trim().takeIf { it.isNotEmpty() },
+                                title = title,
+                                author = author,
+                                source = credit.optString("source").trim(),
+                                license = license,
+                                modified = credit.optBoolean("modified", false),
+                            ),
+                        )
+                    }
+                }
+            }
+
             PackInfo(
                 id = id,
                 name = names?.optString("en")?.takeIf { it.isNotBlank() } ?: id,
@@ -100,6 +135,8 @@ class PackRepository(context: Context) {
                 tags = tags.filter { it.isNotBlank() },
                 bedCount = json.optJSONArray("beds")?.length() ?: 0,
                 eventCount = json.optJSONArray("events")?.length() ?: 0,
+                license = json.optString("license").trim(),
+                credits = credits,
                 directory = directory,
             )
         }.onFailure { Log.w(TAG, "could not read ${directory.name}", it) }.getOrNull()

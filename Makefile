@@ -1,7 +1,7 @@
 CARGO_MANIFEST := core/Cargo.toml
 CLI := cargo run --manifest-path $(CARGO_MANIFEST) -p oniris-cli --
 
-.PHONY: all test fmt fmt-check clippy packs packs-wav pack render android-native android clean
+.PHONY: all test fmt fmt-check clippy packs packs-wav noise pack render android-native android clean
 
 all: fmt-check clippy test
 
@@ -22,6 +22,9 @@ packs:
 
 packs-wav:
 	$(CLI) gen-test-packs packs-wav --format wav
+
+noise:
+	$(CLI) gen-noise-pack packs
 
 pack: packs
 	$(CLI) pack packs/test-rain test-rain.onirispack
