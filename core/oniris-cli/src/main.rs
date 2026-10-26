@@ -45,7 +45,12 @@ enum Command {
     /// Validate a pack directory and decode every asset.
     Validate { path: PathBuf },
     /// Print basic information about a WAV render.
-    Analyze { path: PathBuf },
+    Analyze {
+        path: PathBuf,
+        /// Single-sample jump treated as a click, as a fraction of full scale.
+        #[arg(long, default_value_t = 0.25)]
+        click_threshold: f32,
+    },
     /// Encode a WAV or Opus file as a 48 kHz Ogg/Opus asset.
     EncodeOpus {
         input: PathBuf,
@@ -113,7 +118,10 @@ fn main() -> Result<()> {
             timer_minutes,
         } => render(&packs, minutes, &out, seed, fade_in, timer_minutes),
         Command::Validate { path } => validate(&path),
-        Command::Analyze { path } => analyze(&path),
+        Command::Analyze {
+            path,
+            click_threshold,
+        } => analyze(&path, click_threshold),
         Command::EncodeOpus {
             input,
             output,
@@ -424,29 +432,42 @@ fn validate(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn analyze(path: &Path) -> Result<()> {
+fn analyze(path: &Path, click_threshold: f32) -> Result<()> {
     let mut reader =
         WavReader::open(path).with_context(|| format!("failed to open {}", path.display()))?;
     let spec = reader.spec();
-    let samples: Vec<i16> = reader
-        .samples::<i16>()
-        .collect::<Result<_, _>>()
-        .context("failed to read samples")?;
+    let channels = spec.channels.max(1) as usize;
 
-    if samples.is_empty() {
+    let mut peak = 0i32;
+    let mut sum_squares = 0f64;
+    let mut sample_count = 0usize;
+    let mut previous = vec![0i32; channels];
+    let threshold = (click_threshold.clamp(0.0, 1.0) * i16::MAX as f32) as i32;
+    let mut max_delta = 0i32;
+    let mut clicks = 0usize;
+
+    for sample in reader.samples::<i16>() {
+        let value = i32::from(sample.context("failed to read samples")?);
+        let channel = sample_count % channels;
+        if sample_count >= channels {
+            let delta = (value - previous[channel]).abs();
+            max_delta = max_delta.max(delta);
+            if delta > threshold {
+                clicks += 1;
+            }
+        }
+        previous[channel] = value;
+        peak = peak.max(value.abs());
+        sum_squares += (value as f64) * (value as f64);
+        sample_count += 1;
+    }
+
+    if sample_count == 0 {
         anyhow::bail!("file contains no samples");
     }
 
-    let channels = spec.channels as usize;
-    let frames = samples.len() / channels;
-    let mut peak = 0i32;
-    let mut sum_squares = 0f64;
-    for sample in &samples {
-        let value = *sample as i32;
-        peak = peak.max(value.abs());
-        sum_squares += (value as f64) * (value as f64);
-    }
-    let rms = (sum_squares / samples.len() as f64).sqrt();
+    let frames = sample_count / channels;
+    let rms = (sum_squares / sample_count as f64).sqrt();
 
     println!("{}", path.display());
     println!("  sample rate: {}", spec.sample_rate);
@@ -463,6 +484,15 @@ fn analyze(path: &Path) -> Result<()> {
     println!(
         "  rms:         {:.2} dBFS",
         linear_to_db(rms as f32 / i16::MAX as f32)
+    );
+    println!(
+        "  max delta:   {} ({:.1} dBFS)",
+        max_delta,
+        linear_to_db(max_delta as f32 / i16::MAX as f32)
+    );
+    println!(
+        "  jumps:       {clicks} above {:.0}% full scale",
+        click_threshold * 100.0
     );
     Ok(())
 }

@@ -10,10 +10,11 @@ The audio engine is written in Rust so the same sound model can run on Android t
 
 - Rust core: manifest validation, Ogg/Opus and WAV decode/resample, seamless bed loops, randomized event voices, LFOs, fades, sleep timer, lookahead limiter.
 - `oniris` CLI: generate synthetic Opus/WAV test packs, encode Opus, validate, render, analyze, measure loudness/true peak, normalize, and package/verify/unpack `.onirispack` archives.
+- `oniris analyze`: peak, RMS, maximum sample-to-sample delta, and large-jump counts for render QA.
 - Android app: pack library, multi-pack selection, volume, sleep timer, foreground media notification, audio focus, wake lock, persisted settings.
 - Native library builds for `arm64-v8a`, `armeabi-v7a`, and `x86_64`; debug and release APKs assemble.
 
-Smoke-tested on an Android 36 x86_64 emulator: pack discovery, play/pause, media-session state, foreground notification, and wake-lock acquire/release all work. Opus decode is covered by Rust round-trip tests; on-device audio and battery soak tests are still pending. The codec is pure Rust (`opus-pure`), so Android builds need no extra native library.
+Smoke-tested on an Android 36 x86_64 emulator: pack discovery, play/pause, media-session state, foreground notification, and wake-lock acquire/release all work. Opus decode and golden render tests (level, brightness, loop seams, determinism) are covered by the Rust suite; on-device audio and battery soak tests are still pending. The codec is pure Rust (`opus-pure`), so Android builds need no extra native library.
 
 ## Why this architecture
 

@@ -13,6 +13,11 @@ play/pause, media session, foreground notification, audio focus, and wake lock
 all work. Real content, Android pack import, OEM testing, listening QA, and the
 8-hour battery soak remain.
 
+**Local QA (Oct 2026):** a 60-minute rain+fire render completes in about 6 s with
+~17 MB peak RSS on the development machine. `oniris-core/tests/golden.rs` covers
+level, brightness, loop continuity, and seed determinism; `oniris analyze`
+reports peak, RMS, max sample delta, and large-jump counts.
+
 ## Locked decisions (v1)
 
 1. **Core:** Rust (`core/oniris-core`), with a C ABI/JNI adapter. Kotlin/Compose Android shell.
@@ -451,7 +456,7 @@ Samsung, Xiaomi, Oppo, and OnePlus aggressively kill background work. A media fo
 ### 9.1 Automated
 
 - **Rust unit tests:** manifest parsing/validation, loop bounds, gain ramps, scheduler determinism with seeds, timer math, limiter, Opus/WAV decode and pre-skip/end-trim handling, resampler level/alias rejection, loudness gating and true peak.
-- **Golden audio tests:** render fixed seeds; compare RMS, spectral centroid, and peak within tolerance; assert no discontinuities above a threshold at loop/fade boundaries.
+- **Golden audio tests:** render fixed seeds; compare RMS, spectral centroid, and peak within tolerance; assert no discontinuities above a threshold at loop/fade boundaries. Implemented in `oniris-core/tests/golden.rs`; `oniris analyze` reports max sample delta and large-jump counts for manual render QA.
 - **Fuzz:** manifest JSON and zip extraction (paths, sizes, malformed Opus).
 - **JNI round-trip:** create/load/mix/render/destroy; error paths.
 - **Android instrumentation:** service lifecycle, notification, audio focus loss/gain, timer stop, process death restore, headphone disconnect.
