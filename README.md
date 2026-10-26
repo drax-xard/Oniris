@@ -9,7 +9,7 @@ The audio engine is written in Rust so the same sound model can run on Android t
 ## What works today
 
 - Rust core: manifest validation, Ogg/Opus and WAV decode/resample, seamless bed loops, randomized event voices, LFOs, fades, sleep timer, lookahead limiter.
-- `oniris` CLI: generate synthetic Opus/WAV test packs, encode Opus, validate, render, analyze, and package/verify/unpack `.onirispack` archives.
+- `oniris` CLI: generate synthetic Opus/WAV test packs, encode Opus, validate, render, analyze, measure loudness/true peak, normalize, and package/verify/unpack `.onirispack` archives.
 - Android app: pack library, multi-pack selection, volume, sleep timer, foreground media notification, audio focus, wake lock, persisted settings.
 - Native library builds for `arm64-v8a`, `armeabi-v7a`, and `x86_64`; debug and release APKs assemble.
 
@@ -29,7 +29,7 @@ android/                 Android app (Kotlin, Compose, media service)
 core/                    Rust workspace
   oniris-pack/           Manifest types, validation, archives, path safety
   oniris-core/           Decoder, mixer, scheduler, limiter, sleep timer
-  oniris-cli/            render / validate / analyze / encode-opus / pack / gen-test-packs
+  oniris-cli/            render / validate / analyze / encode-opus / loudness / normalize / pack
   oniris-jni/            JNI bridge for Android
 docs/                    Plan, architecture, pack format, build notes
 packs/                   Generated test packs (ignored by git)
@@ -56,6 +56,14 @@ cargo run --manifest-path core/Cargo.toml -p oniris-cli -- validate packs/test-r
 # Encode a WAV master as a gapless 48 kHz Opus asset
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
   encode-opus path/to/master.wav /tmp/master.opus --bitrate 96000
+
+# Measure EBU R128 loudness and true peak
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- loudness /tmp/oniris-test.wav
+
+# Normalize to -23 LUFS while keeping true peak at or below -1.5 dBTP
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+  normalize path/to/master.wav /tmp/master-normalized.wav \
+  --target-lufs -23 --true-peak -1.5
 
 # Package, verify, and unpack a distributable archive
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \

@@ -141,6 +141,14 @@ platform-neutral.
 - The master limiter has 5 ms of lookahead and a 100 ms release. It is a
   sample-peak limiter (not true-peak) and never lets a sample exceed -1.5 dBFS.
 
+## Content measurement
+
+`oniris-cli loudness` applies the BS.1770 K-weighting filters and 400 ms gated
+blocks to report integrated LUFS, true peak (4x oversampled), and sample peak.
+`oniris-cli normalize` applies a single gain that reaches the LUFS target unless
+that would exceed the true-peak ceiling. Both decode at 48 kHz first, so WAV
+masters at other rates are resampled once by the same sinc path as playback.
+
 ## Pack archives
 
 `.onirispack` files are deterministic zips written and validated by
@@ -156,7 +164,8 @@ module through JNI so there is one set of security rules.
 - Crossfade when changing mixes while playing.
 - Android download manager and pack import UI (the archive format and Rust
   extraction path are implemented).
-- Real content and loudness normalization pipeline.
+- Real content sourcing, listening QA, and final loudness decisions (measurement
+  and gain tools are in the CLI).
 - Real-device battery, underrun, and thermal soak testing.
 
 These are tracked in `docs/DEVELOPMENT_PLAN.md`.

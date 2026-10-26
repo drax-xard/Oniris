@@ -151,7 +151,8 @@ localized sounds and narrow ranges for thunder/rumble.
 - Events: mono or stereo, 64 kbps, 20 ms frames.
 - Source masters: 48 kHz, 24-bit WAV, archived outside the app repository.
 - Loudness: beds normalized to -23 LUFS integrated; events balanced relative to
-  the bed; true peak ≤ -1.5 dBTP.
+  the bed; true peak ≤ -1.5 dBTP. Measure with `oniris loudness` (BS.1770
+  integrated + 4x true peak) and apply gain with `oniris normalize`.
 
 **Current decoder:** Ogg/Opus is the production path; `.opus` and `.ogg` files
 are decoded natively. WAV remains supported for lossless tests and debugging.

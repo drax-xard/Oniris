@@ -49,6 +49,12 @@ cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
   encode-opus master.wav master.opus --bitrate 96000
 
+# Measure EBU R128 loudness/true peak, then normalize to -23 LUFS / -1.5 dBTP
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+  loudness master.wav
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+  normalize master.wav master-normalized.wav --target-lufs -23 --true-peak -1.5
+
 # Package and verify a distributable archive
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
   pack packs/test-rain /tmp/test-rain.onirispack

@@ -23,13 +23,18 @@ measurement; keep the pipeline deterministic and scriptable.
 
 ## Current commands
 
-The Rust CLI already provides the codec and archive steps; the Python spool
-will add ingest and loudness measurement around it.
+The Rust CLI already provides the codec, loudness, and archive steps; the Python
+spool will add ingest, loop editing, and packaging orchestration around it.
 
 ```bash
 # WAV master -> gapless 48 kHz Ogg/Opus
 cargo run --manifest-path ../../core/Cargo.toml -p oniris-cli -- \
   encode-opus master.wav master.opus --bitrate 96000
+
+# Measure EBU R128 loudness/true peak and normalize to the pack targets
+cargo run --manifest-path ../../core/Cargo.toml -p oniris-cli -- loudness master.wav
+cargo run --manifest-path ../../core/Cargo.toml -p oniris-cli -- \
+  normalize master.wav master-normalized.wav --target-lufs -23 --true-peak -1.5
 
 cargo run --manifest-path ../../core/Cargo.toml -p oniris-cli -- validate <pack-dir>
 

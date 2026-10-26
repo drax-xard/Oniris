@@ -61,6 +61,16 @@ jobs:
             --pack /tmp/packs-wav/test-rain --pack /tmp/packs-wav/test-fire \
             --minutes 0.25 --out /tmp/oniris-wav.wav --fade-in 0.5
 
+      - name: Measure and normalize loudness
+        run: |
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            loudness /tmp/packs-opus/test-rain/audio/rain.opus
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            normalize /tmp/packs-opus/test-rain/audio/rain.opus \
+            /tmp/rain-normalized.wav --target-lufs -23 --true-peak -1.5
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            loudness /tmp/rain-normalized.wav
+
       - name: Package and unpack an archive
         run: |
           cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \

@@ -1,4 +1,5 @@
 mod generate;
+mod loudness;
 mod opus_encode;
 
 use std::path::{Path, PathBuf};
@@ -53,6 +54,23 @@ enum Command {
         #[arg(long, default_value_t = 96_000)]
         bitrate: i32,
     },
+    /// Measure integrated loudness (LUFS) and true peak (dBTP).
+    Loudness { path: PathBuf },
+    /// Normalize a file to a loudness target while respecting true peak.
+    Normalize {
+        input: PathBuf,
+        /// Output path; `.wav`, `.opus`, and `.ogg` are supported.
+        output: PathBuf,
+        /// Integrated loudness target in LUFS.
+        #[arg(long, default_value_t = -23.0, allow_hyphen_values = true)]
+        target_lufs: f32,
+        /// True-peak ceiling in dBTP.
+        #[arg(long, default_value_t = -1.5, allow_hyphen_values = true)]
+        true_peak: f32,
+        /// Opus bitrate for `.opus`/`.ogg` output.
+        #[arg(long, default_value_t = 96_000)]
+        bitrate: i32,
+    },
     /// Generate synthetic test packs (rain + fire) for development.
     GenTestPacks {
         out: PathBuf,
@@ -101,6 +119,14 @@ fn main() -> Result<()> {
             output,
             bitrate,
         } => encode_opus_file(&input, &output, bitrate),
+        Command::Loudness { path } => measure_loudness(&path),
+        Command::Normalize {
+            input,
+            output,
+            target_lufs,
+            true_peak,
+            bitrate,
+        } => normalize_file(&input, &output, target_lufs, true_peak, bitrate),
         Command::GenTestPacks { out, format } => generate::generate_test_packs(&out, format),
         Command::Pack { dir, out } => pack_archive(&dir, &out),
         Command::VerifyPack { archive, sha256 } => verify_pack(&archive, sha256.as_deref()),
@@ -175,6 +201,117 @@ fn encode_opus_file(input: &Path, output: &Path, bitrate: i32) -> Result<()> {
         bytes as f32 / 1024.0,
     );
     Ok(())
+}
+
+fn measure_loudness(path: &Path) -> Result<()> {
+    let audio = decode_audio(path, 48_000)
+        .with_context(|| format!("failed to decode {}", path.display()))?;
+    let measurement = loudness::measure(&audio.samples, audio.channels, 48_000);
+    println!(
+        "{}: integrated {} LUFS, true peak {} dBTP, sample peak {} dBFS, {} gated blocks",
+        path.display(),
+        format_level(measurement.integrated_lufs),
+        format_level(measurement.true_peak_dbtp),
+        format_level(measurement.sample_peak_dbfs),
+        measurement.gated_blocks,
+    );
+    Ok(())
+}
+
+fn normalize_file(
+    input: &Path,
+    output: &Path,
+    target_lufs: f32,
+    true_peak: f32,
+    bitrate: i32,
+) -> Result<()> {
+    if !target_lufs.is_finite() || !true_peak.is_finite() {
+        bail!("--target-lufs and --true-peak must be finite");
+    }
+
+    let extension = output
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase)
+        .context("output path needs a .wav, .opus, or .ogg extension")?;
+    if !matches!(extension.as_str(), "wav" | "opus" | "ogg") {
+        bail!("unsupported output format .{extension}; use .wav, .opus, or .ogg");
+    }
+
+    let audio = decode_audio(input, 48_000)
+        .with_context(|| format!("failed to decode {}", input.display()))?;
+    let before = loudness::measure(&audio.samples, audio.channels, 48_000);
+    if !before.integrated_lufs.is_finite() {
+        bail!("cannot normalize a silent signal");
+    }
+
+    // Reach the loudness target unless that would push the true peak over the
+    // ceiling; in that case keep the peak and accept a quieter result.
+    let loudness_gain = target_lufs - before.integrated_lufs;
+    let peak_gain = true_peak - before.true_peak_dbtp;
+    let gain_db = loudness_gain.min(peak_gain);
+    if !gain_db.is_finite() {
+        bail!("could not compute a normalization gain");
+    }
+
+    let normalized = loudness::apply_gain(&audio.samples, gain_db);
+
+    match extension.as_str() {
+        "wav" => write_wav_48k(output, audio.channels, &normalized)?,
+        "opus" | "ogg" => {
+            opus_encode::encode_opus(output, &normalized, audio.channels, 48_000, bitrate)?;
+        }
+        _ => unreachable!(),
+    }
+
+    // Re-measure the written file: lossy encoding can move both loudness and
+    // true peak slightly, so report what actually landed on disk.
+    let written = decode_audio(output, 48_000)
+        .with_context(|| format!("failed to verify {}", output.display()))?;
+    let output_measurement = loudness::measure(&written.samples, written.channels, 48_000);
+    if output_measurement.true_peak_dbtp > true_peak + 0.3 {
+        eprintln!(
+            "warning: encoded true peak is {} dBTP, above the {} dBTP target",
+            format_level(output_measurement.true_peak_dbtp),
+            format_level(true_peak),
+        );
+    }
+
+    println!(
+        "normalized {} -> {}: {} -> {} LUFS, {} -> {} dBTP, applied {:+.2} dB",
+        input.display(),
+        output.display(),
+        format_level(before.integrated_lufs),
+        format_level(output_measurement.integrated_lufs),
+        format_level(before.true_peak_dbtp),
+        format_level(output_measurement.true_peak_dbtp),
+        gain_db,
+    );
+    Ok(())
+}
+
+fn write_wav_48k(path: &Path, channels: u16, samples: &[i16]) -> Result<()> {
+    let spec = WavSpec {
+        channels,
+        sample_rate: 48_000,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut writer = WavWriter::create(path, spec)
+        .with_context(|| format!("failed to create {}", path.display()))?;
+    for sample in samples {
+        writer.write_sample(*sample)?;
+    }
+    writer.finalize()?;
+    Ok(())
+}
+
+fn format_level(value: f32) -> String {
+    if value.is_finite() {
+        format!("{value:.1}")
+    } else {
+        "-inf".to_string()
+    }
 }
 
 fn render(

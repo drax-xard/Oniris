@@ -6,11 +6,12 @@
 **Goal:** Mix seamless, non-repetitive soundscapes, run all night on battery, and make new content cheap to add.
 
 **Progress (Oct 2026):** Rust core, pack spec, CLI, JNI, Android shell,
-Ogg/Opus decode/encode, and deterministic `.onirispack` packaging/extraction are
-implemented and build. The debug APK runs on an Android 36 emulator: pack
-discovery, play/pause, media session, foreground notification, audio focus, and
-wake lock all work. Real content, Android pack import, OEM testing, listening QA,
-and the 8-hour battery soak remain.
+Ogg/Opus decode/encode, deterministic `.onirispack` packaging/extraction, and
+EBU R128 loudness/true-peak measurement and normalization are implemented and
+build. The debug APK runs on an Android 36 emulator: pack discovery,
+play/pause, media session, foreground notification, audio focus, and wake lock
+all work. Real content, Android pack import, OEM testing, listening QA, and the
+8-hour battery soak remain.
 
 ## Locked decisions (v1)
 
@@ -311,6 +312,9 @@ Python (NumPy, SoundFile, pyloudnorm, ffmpeg) or a Rust CLI:
 2. Trim silence, remove DC offset, denoise manually where needed.
 3. Choose loop region; apply equal-power crossfade of tail into head; verify periodicity for wave/fire rhythms.
 4. Normalize bed to -23 LUFS integrated; normalize events relative to the bed; limit to -1.5 dBTP.
+   `oniris-cli loudness` measures BS.1770 integrated LUFS and 4x-oversampled true
+   peak; `oniris-cli normalize` applies a single gain that respects the true-peak
+   ceiling. Use it as the measurement of record before final listening QA.
 5. Encode Opus: 96 kbps stereo beds, 64 kbps mono events, 48 kHz, 20 ms
    frames. `oniris-cli encode-opus` already writes gapless files; the Python
    pipeline should call it for consistency.
@@ -446,7 +450,7 @@ Samsung, Xiaomi, Oppo, and OnePlus aggressively kill background work. A media fo
 
 ### 9.1 Automated
 
-- **Rust unit tests:** manifest parsing/validation, loop bounds, gain ramps, scheduler determinism with seeds, timer math, limiter, Opus/WAV decode and pre-skip/end-trim handling.
+- **Rust unit tests:** manifest parsing/validation, loop bounds, gain ramps, scheduler determinism with seeds, timer math, limiter, Opus/WAV decode and pre-skip/end-trim handling, resampler level/alias rejection, loudness gating and true peak.
 - **Golden audio tests:** render fixed seeds; compare RMS, spectral centroid, and peak within tolerance; assert no discontinuities above a threshold at loop/fade boundaries.
 - **Fuzz:** manifest JSON and zip extraction (paths, sizes, malformed Opus).
 - **JNI round-trip:** create/load/mix/render/destroy; error paths.
@@ -520,9 +524,9 @@ Assumes one developer working roughly full-time, with content sourcing in parall
 (playback spine) are substantially done; 60-minute listening QA is still open.
 Phase 3 (mixer UX) has pack selection, master volume, and the timer; presets,
 per-pack volume, lock-screen metadata, and a quick tile are open. Phase 4
-(content) is next and should use the new Opus encoder and `.onirispack` packer
-in `oniris-cli`; the remaining distribution work is the Android download/import
-UI.
+(content) is next and should use the new Opus encoder, `.onirispack` packer, and
+loudness/normalize tools in `oniris-cli`; the remaining distribution work is the
+Android download/import UI.
 
 Content sourcing and licensing start in week 1; they are the most likely schedule risk.
 
