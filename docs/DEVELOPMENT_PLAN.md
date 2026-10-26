@@ -311,6 +311,10 @@ Rules:
 
 ### 5.8 Content pipeline
 
+Source and license research for the first packs is in
+[`CONTENT_SOURCES.md`](CONTENT_SOURCES.md). It lists approved sources, excluded
+licenses, curated Freesound searches, and a proposed first five packs.
+
 Python (NumPy, SoundFile, pyloudnorm, ffmpeg) or a Rust CLI:
 
 1. Ingest 48 kHz/24-bit WAV masters.

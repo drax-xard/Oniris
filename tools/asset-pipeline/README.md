@@ -4,6 +4,9 @@ This directory will hold the scripts that turn source recordings into validated
 packs. The current scaffold provides the Rust validator/renderer; the Python
 pipeline is the next content milestone.
 
+Source research, approved licenses, and curated searches:
+[`../../docs/CONTENT_SOURCES.md`](../../docs/CONTENT_SOURCES.md).
+
 ## Intended flow
 
 1. **Ingest** 48 kHz/24-bit WAV masters.
@@ -14,7 +17,7 @@ pipeline is the next content milestone.
 5. **Encode**: Opus (96 kbps stereo beds, 64 kbps mono/stereo events).
 6. **Manifest**: generate/validate `manifest.json`; verify loop sample counts.
 7. **QA**: render a 60 s preview, loop 100×, listen on speaker/headphones.
-8. **Package**: zip with `LICENSE`, `README.md`, art, and audio.
+8. **Package**: validate and run `oniris pack`; keep the archive SHA-256.
 
 ## Suggested dependencies
 

@@ -53,6 +53,14 @@ Pack archives use `zip` (MIT), `sha2` (MIT/Apache-2.0), and `tempfile`
 add them to the in-app attribution/license screen before the first public
 release. Keep the dependency list and notices current as crates are added.
 
+## Content sources
+
+Approved audio sources, license rules, curated searches, and the first-pack plan
+are documented in [`CONTENT_SOURCES.md`](CONTENT_SOURCES.md). In short: use CC0,
+CC BY, and verified public-domain material; avoid NC/ND/SA and custom licenses
+that restrict app use or redistribution. Keep a dated license copy and a source
+log for every master.
+
 ## Launch content sources
 
 - Own field recordings (rain, fire, sea, forest).

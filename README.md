@@ -32,7 +32,7 @@ core/                    Rust workspace
   oniris-core/           Decoder, mixer, scheduler, limiter, sleep timer
   oniris-cli/            render / validate / analyze / encode-opus / loudness / normalize / pack
   oniris-jni/            JNI bridge for Android
-docs/                    Plan, architecture, pack format, build notes
+docs/                    Plan, architecture, pack format, content sources, build notes
 packs/                   Generated test packs (ignored by git)
 tools/                   Asset pipeline (placeholder)
 scripts/                 Helper scripts
