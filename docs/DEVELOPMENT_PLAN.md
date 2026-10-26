@@ -315,6 +315,9 @@ Rules:
 Source and license research for the first packs is in
 [`CONTENT_SOURCES.md`](CONTENT_SOURCES.md). It lists approved sources, excluded
 licenses, curated Freesound searches, and a proposed first five packs.
+Procedural synthesis is assessed in
+[`PROCEDURAL_AUDIO.md`](PROCEDURAL_AUDIO.md): use it for support layers and
+variation, not as a replacement for recorded beds.
 
 Python (NumPy, SoundFile, pyloudnorm, ffmpeg) or a Rust CLI:
 

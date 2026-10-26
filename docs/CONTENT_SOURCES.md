@@ -30,6 +30,10 @@ recording quality clearly justifies the attribution burden. The manifest
 `credits` array and the app's “Licenses & credits” section are implemented; use
 them for every CC BY asset.
 
+Procedural generation is assessed separately in
+[`PROCEDURAL_AUDIO.md`](PROCEDURAL_AUDIO.md). The short version: use it for
+support layers and variation, not as a replacement for recorded beds.
+
 ## License matrix
 
 | Source | License | Commercial | Modify | Redistribute in `.onirispack` | Attribution |
