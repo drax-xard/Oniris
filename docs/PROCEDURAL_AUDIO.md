@@ -250,13 +250,21 @@ clearly licensed for commercial use.
 
 ## Current prototype
 
+Pack concepts for exotic soundscapes are in
+[`PROCEDURAL_PACK_IDEAS.md`](PROCEDURAL_PACK_IDEAS.md).
+
 Implemented in the CLI and Android shell:
 
 - `oniris gen-procedural-packs <dir>` generates:
   - **Pure Noise** — layered pink/brown noise.
   - **Rainy Night (Synthetic)** — high-passed noise bed with stochastic
     droplet resonances, three procedural thunder events, and six drip events.
-- Both packs are CC0, carry per-asset credits, and set `"procedural": true`.
+  - **Deep Space Cabin** — engine drone + air handling, soft beeps, hull
+    creaks, and airlock thumps.
+  - **Enchanted Forest** — wind + brook beds, sparse chimes, owls, and leaf
+    rustles.
+- All four packs are CC0, carry per-asset credits, and set
+  `"procedural": true`.
 - The Android app has a persisted **Procedural only** switch that hides
   recorded packs and filters the active mix to procedural packs.
 - The procedural Rainy Night is a first prototype, not a final sound-design
@@ -268,6 +276,10 @@ Prototype measurements (48 kHz, Opus):
 - **Pure Noise**: two 60 s beds, ~1.4 MB, render ≈ -23.1 LUFS, peak ≈ -8 dBFS.
 - **Rainy Night (Synthetic)**: 60 s rain bed + 3 thunder + 6 drip events,
   ~0.9 MB, bed ≈ -23.2 LUFS, render ≈ -23.0 LUFS / -8 dBFS peak, no large jumps.
+- **Deep Space Cabin**: engine + air beds, ~1.5 MB, render ≈ -23.0 LUFS,
+  peak ≈ -13 dBFS, no jumps.
+- **Enchanted Forest**: wind + brook beds, ~1.6 MB, render ≈ -23.2 LUFS,
+  peak ≈ -11 dBFS, no jumps.
 
 ## Prototype plan
 

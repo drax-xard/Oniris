@@ -4,7 +4,7 @@ Oniris is a battery-first Android sleep-soundscape app. It mixes seamless ambien
 
 The audio engine is written in Rust so the same sound model can run on Android today and on desktop, Raspberry Pi, or the web later.
 
-**Status:** early scaffold, with the production audio format, pack distribution, and a procedural synthesis path working end to end. The Rust core, pack format, deterministic `.onirispack` archives, attribution credits, a generated Pure Noise pack, a synthetic Rainy Night prototype, CLI, Android shell, and Ogg/Opus decode/encode are in place, and the Android debug APK builds with JDK 21 + SDK 36. Field-recorded sound packs, Android pack import UI, and on-device/battery validation are next.
+**Status:** early scaffold, with the production audio format, pack distribution, and a procedural synthesis path working end to end. The Rust core, pack format, deterministic `.onirispack` archives, attribution credits, procedural packs (Pure Noise, Rainy Night, Deep Space Cabin, Enchanted Forest), CLI, Android shell, and Ogg/Opus decode/encode are in place, and the Android debug APK builds with JDK 21 + SDK 36. Field-recorded sound packs, Android pack import UI, and on-device/battery validation are next.
 
 ## What works today
 
@@ -47,12 +47,16 @@ cargo test --manifest-path core/Cargo.toml --workspace
 # Generate synthetic test packs (rain + fire); Ogg/Opus by default
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- gen-test-packs packs
 
-# Generate procedural packs: Pure Noise + synthetic Rainy Night (CC0)
+# Generate procedural packs: noise, synthetic rain, space cabin, enchanted forest
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- gen-procedural-packs packs
 
+# Generate just one recipe
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+  gen-procedural-packs packs --pack deep-space-cabin
+
 # Validate a pack and print its attribution credits
-cargo run --manifest-path core/Cargo.toml -p oniris-cli -- validate packs/rainy-night-procedural
-cargo run --manifest-path core/Cargo.toml -p oniris-cli -- credits packs/rainy-night-procedural
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- validate packs/deep-space-cabin
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- credits packs/deep-space-cabin
 
 # Lossless fallback for debugging or codec A/B tests
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \

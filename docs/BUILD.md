@@ -36,9 +36,13 @@ Generate test content and render a mix:
 # Ogg/Opus by default, matching production assets
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- gen-test-packs packs
 
-# Default procedural packs: Pure Noise + synthetic Rainy Night (CC0)
+# Procedural packs: Pure Noise, synthetic Rainy Night, Deep Space Cabin, Enchanted Forest
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- gen-procedural-packs packs
-cargo run --manifest-path core/Cargo.toml -p oniris-cli -- credits packs/rainy-night-procedural
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- credits packs/deep-space-cabin
+
+# Generate one named procedural recipe
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+  gen-procedural-packs packs --pack enchanted-forest
 
 # Pure Noise only
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- gen-noise-pack packs

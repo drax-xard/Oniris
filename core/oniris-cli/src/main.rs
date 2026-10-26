@@ -89,7 +89,12 @@ enum Command {
     /// Generate the first default pack: layered pink/brown noise (CC0).
     GenNoisePack { out: PathBuf },
     /// Generate all procedural packs: Pure Noise + synthetic Rainy Night (CC0).
-    GenProceduralPacks { out: PathBuf },
+    GenProceduralPacks {
+        out: PathBuf,
+        /// Generate only one pack by id.
+        #[arg(long)]
+        pack: Option<String>,
+    },
     /// Package a pack directory as a deterministic `.onirispack` archive.
     Pack {
         /// Pack directory containing `manifest.json`.
@@ -144,7 +149,9 @@ fn main() -> Result<()> {
         } => normalize_file(&input, &output, target_lufs, true_peak, bitrate),
         Command::GenTestPacks { out, format } => generate::generate_test_packs(&out, format),
         Command::GenNoisePack { out } => generate::generate_noise_pack(&out),
-        Command::GenProceduralPacks { out } => generate::generate_procedural_packs(&out),
+        Command::GenProceduralPacks { out, pack } => {
+            generate::generate_procedural_packs(&out, pack.as_deref())
+        }
         Command::Pack { dir, out } => pack_archive(&dir, &out),
         Command::VerifyPack { archive, sha256 } => verify_pack(&archive, sha256.as_deref()),
         Command::Unpack { archive, dir } => unpack_pack(&archive, &dir),

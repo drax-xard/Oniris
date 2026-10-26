@@ -70,7 +70,15 @@ jobs:
           cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
             validate /tmp/packs-opus/rainy-night-procedural
           cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            validate /tmp/packs-opus/deep-space-cabin
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            validate /tmp/packs-opus/enchanted-forest
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
             credits /tmp/packs-opus/rainy-night-procedural
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            credits /tmp/packs-opus/deep-space-cabin
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            credits /tmp/packs-opus/enchanted-forest
           cargo run --manifest-path core/Cargo.toml -p oniris-cli -- render \
             --pack /tmp/packs-opus/rainy-night-procedural \
             --minutes 0.25 --out /tmp/oniris-procedural.wav --fade-in 0.5
