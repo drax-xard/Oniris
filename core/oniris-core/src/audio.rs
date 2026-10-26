@@ -242,8 +242,16 @@ fn decode_error(path: &Path, error: hound::Error) -> EngineError {
     }
 }
 
-/// Linear resampling, good enough for load-time normalization. Replace with a
-/// windowed-sinc resampler if measurements show it is audible.
+/// Number of sinc lobes on each side before the low-pass widens for
+/// downsampling. More taps trade load-time CPU for alias rejection.
+const RESAMPLE_LOBES: f64 = 16.0;
+
+/// Band-limited resampling with a Hann-windowed sinc kernel.
+///
+/// Load-time only: it runs once per asset, not on the audio thread. The kernel
+/// is widened when downsampling so it low-passes below the new Nyquist
+/// frequency, and edge taps are renormalized so DC and level stay correct at
+/// the start and end of a file.
 fn resample(input: &[i16], channels: u16, input_rate: u32, output_rate: u32) -> Vec<i16> {
     if input_rate == output_rate || input.is_empty() {
         return input.to_vec();
@@ -257,18 +265,53 @@ fn resample(input: &[i16], channels: u16, input_rate: u32, output_rate: u32) -> 
     let output_frames =
         ((input_frames as u64 * output_rate as u64) / input_rate as u64).max(1) as usize;
     let ratio = input_rate as f64 / output_rate as f64;
+    let cutoff = (output_rate as f64 / input_rate as f64).min(1.0);
+    let radius = (RESAMPLE_LOBES / cutoff).ceil() as isize;
     let mut output = Vec::with_capacity(output_frames * channels);
 
     for frame in 0..output_frames {
-        let position = frame as f64 * ratio;
-        let index = (position.floor() as usize).min(input_frames - 1);
-        let next = (index + 1).min(input_frames - 1);
-        let fraction = position - index as f64;
+        let center = frame as f64 * ratio;
+        let first = center.floor() as isize - radius + 1;
 
-        for channel in 0..channels {
-            let a = input[index * channels + channel] as f64;
-            let b = input[next * channels + channel] as f64;
-            let value = a + (b - a) * fraction;
+        let mut sums = [0.0f64; 2];
+        let mut weight_sum = 0.0f64;
+
+        for tap in 0..(radius * 2) {
+            let index = first + tap;
+            if index < 0 || index >= input_frames as isize {
+                continue;
+            }
+
+            let distance = index as f64 - center;
+            let window_position = distance / radius as f64;
+            let window = 0.5 * (1.0 + (std::f64::consts::PI * window_position).cos());
+            let argument = std::f64::consts::PI * distance * cutoff;
+            let sinc = if argument.abs() < 1e-9 {
+                1.0
+            } else {
+                argument.sin() / argument
+            };
+            let weight = sinc * window * cutoff;
+            if weight == 0.0 {
+                continue;
+            }
+
+            weight_sum += weight;
+            let base = index as usize * channels;
+            for channel in 0..channels {
+                sums[channel] += input[base + channel] as f64 * weight;
+            }
+        }
+
+        // `weight_sum` is close to 1 in the interior. Renormalizing keeps
+        // amplitude flat where the kernel runs off the edge of the file.
+        let scale = if weight_sum.abs() > 1e-9 {
+            1.0 / weight_sum
+        } else {
+            1.0
+        };
+        for sum in sums.iter().take(channels) {
+            let value = sum * scale;
             output.push(value.round().clamp(i16::MIN as f64, i16::MAX as f64) as i16);
         }
     }
@@ -326,9 +369,13 @@ mod tests {
     }
 
     fn sine(frames: usize, channels: usize, rate: u32, amplitude: f32) -> Vec<i16> {
+        tone(frames, channels, rate, 440.0, amplitude)
+    }
+
+    fn tone(frames: usize, channels: usize, rate: u32, frequency: f32, amplitude: f32) -> Vec<i16> {
         (0..frames)
             .flat_map(|frame| {
-                let value = (frame as f32 * std::f32::consts::TAU * 440.0 / rate as f32).sin()
+                let value = (frame as f32 * std::f32::consts::TAU * frequency / rate as f32).sin()
                     * amplitude
                     * i16::MAX as f32;
                 let value = value.round() as i16;
@@ -361,6 +408,48 @@ mod tests {
         let input = vec![0i16; 48_000 * 2];
         let output = resample(&input, 2, 48_000, 44_100);
         assert_eq!(output.len(), 44_100 * 2);
+    }
+
+    #[test]
+    fn resample_preserves_dc_level() {
+        let input = vec![16_000i16; 48_000 * 2];
+        for target in [44_100u32, 24_000] {
+            let output = resample(&input, 2, 48_000, target);
+            let worst = output
+                .iter()
+                .map(|sample| (*sample as i32 - 16_000).abs())
+                .max()
+                .unwrap();
+            assert!(worst <= 1, "{target} Hz: worst error {worst}");
+        }
+    }
+
+    #[test]
+    fn resample_preserves_tone_level() {
+        let input = tone(48_000, 2, 48_000, 1_000.0, 0.5);
+        let output = resample(&input, 2, 48_000, 44_100);
+
+        // Ignore the first and last 20 ms, where the kernel runs off the edge.
+        let edge = 44_100 / 50 * 2;
+        let middle = &output[edge..output.len() - edge];
+        let measured = rms(middle);
+        let expected = 0.5 / 2f32.sqrt();
+        assert!(
+            (measured - expected).abs() < expected * 0.02,
+            "level {measured} vs {expected}"
+        );
+    }
+
+    #[test]
+    fn resample_rejects_aliases_when_downsampling() {
+        // A 20 kHz tone is above the 12 kHz Nyquist of a 24 kHz target; the
+        // anti-alias low-pass should suppress it instead of folding it to 4 kHz.
+        let input = tone(48_000, 2, 48_000, 20_000.0, 0.5);
+        let output = resample(&input, 2, 48_000, 24_000);
+
+        let edge = 24_000 / 50 * 2;
+        let middle = &output[edge..output.len() - edge];
+        assert!(rms(middle) < 0.01, "alias leaked through: {}", rms(middle));
     }
 
     #[test]

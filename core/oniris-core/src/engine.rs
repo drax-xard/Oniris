@@ -696,6 +696,13 @@ impl Engine {
                 1.0
             };
 
+            if finished {
+                // The timer just ended. Drop the limiter's short lookahead
+                // tail so everything after the fade is exact silence.
+                limiter.reset();
+                break;
+            }
+
             let gain = transport_gain * timer_gain * master_gain;
             let (left, right) =
                 limiter.process(scratch[frame * 2] * gain, scratch[frame * 2 + 1] * gain);

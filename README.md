@@ -8,7 +8,7 @@ The audio engine is written in Rust so the same sound model can run on Android t
 
 ## What works today
 
-- Rust core: manifest validation, Ogg/Opus and WAV decode/resample, seamless bed loops, randomized event voices, LFOs, fades, sleep timer, limiter.
+- Rust core: manifest validation, Ogg/Opus and WAV decode/resample, seamless bed loops, randomized event voices, LFOs, fades, sleep timer, lookahead limiter.
 - `oniris` CLI: generate synthetic Opus/WAV test packs, encode Opus, validate, render, analyze.
 - Android app: pack library, multi-pack selection, volume, sleep timer, foreground media notification, audio focus, wake lock, persisted settings.
 - Native library builds for `arm64-v8a`, `armeabi-v7a`, and `x86_64`; debug and release APKs assemble.

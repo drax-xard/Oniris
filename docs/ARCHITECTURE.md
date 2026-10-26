@@ -136,12 +136,14 @@ platform-neutral.
   FFI, CMake step, or extra Android library to package.
 - The CLI encoder writes gapless files, which `oniris validate` and the engine
   test suite exercise on every run. WAV remains supported for lossless tests.
+- Rate conversion uses a Hann-windowed sinc low-pass, widened for downsampling,
+  so 44.1 kHz assets and 48 kHz Opus both load cleanly without aliasing.
+- The master limiter has 5 ms of lookahead and a 100 ms release. It is a
+  sample-peak limiter (not true-peak) and never lets a sample exceed -1.5 dBFS.
 
 ## Known scaffold gaps
 
 - Media3 `SimpleBasePlayer` adapter (using `MediaSessionCompat`).
-- Lookahead limiter (instant-attack limiter today).
-- High-quality resampler (linear today).
 - Crossfade when changing mixes while playing.
 - Download manager, pack import UI, and bundled pack installation for `.onirispack` files.
 - Real content and loudness normalization pipeline.
