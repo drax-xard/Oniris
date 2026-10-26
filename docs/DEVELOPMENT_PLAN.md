@@ -546,6 +546,10 @@ Cabin, and Enchanted Forest are generated from the CLI, and the app can limit
 the library to procedural packs; the field-recorded Rainy Night, Seaside, Cabin
 Fire, and Forest Deep packs are next.
 
+**Desktop track:** a macOS/Linux shell is planned as a separate workstream. It
+reuses the Rust core and pack format with iced + cpal; see
+[`DESKTOP.md`](DESKTOP.md). It is not part of the Android critical path.
+
 Content sourcing and licensing start in week 1; they are the most likely schedule risk.
 
 ---
