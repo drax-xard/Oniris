@@ -1,0 +1,13 @@
+# Gradle
+.gradle/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.iml
+*.apk
+*.aab
+
+# Native libraries are build artifacts produced by `make android-native`
+android/app/src/main/jniLibs/

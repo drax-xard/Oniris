@@ -1,0 +1,51 @@
+name: Rust
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "core/**"
+      - ".github/workflows/rust.yml"
+  pull_request:
+    paths:
+      - "core/**"
+      - ".github/workflows/rust.yml"
+
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core -> target
+
+      - name: Format
+        run: cargo fmt --manifest-path core/Cargo.toml --all --check
+
+      - name: Clippy
+        run: cargo clippy --manifest-path core/Cargo.toml --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --manifest-path core/Cargo.toml --workspace
+
+      - name: Render a short mix
+        run: |
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- gen-test-packs /tmp/packs
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- validate /tmp/packs/test-rain
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- render \
+            --pack /tmp/packs/test-rain --pack /tmp/packs/test-fire \
+            --minutes 0.25 --out /tmp/oniris.wav --fade-in 0.5
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- analyze /tmp/oniris.wav

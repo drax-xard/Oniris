@@ -4,7 +4,7 @@ Oniris is a battery-first Android sleep-soundscape app. It mixes seamless ambien
 
 The audio engine is written in Rust so the same sound model can run on Android today and on desktop, Raspberry Pi, or the web later.
 
-**Status:** early scaffold. The Rust core, pack format, CLI, and Android shell are in place; the first real sound packs and the production Opus decoder are next.
+**Status:** early scaffold. The Rust core, pack format, CLI, and Android shell are in place, and the Android debug APK builds with JDK 21 + SDK 36. The first real sound packs and the production Opus decoder are next.
 
 ## Why this architecture
 
@@ -58,12 +58,13 @@ Prerequisites: JDK 17 or 21, Android SDK 36, Rust, `cargo-ndk`, and the Android 
 rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 cargo install cargo-ndk
 
+cd core
 cargo ndk \
-  --manifest-path core/Cargo.toml \
   -t arm64-v8a -t armeabi-v7a -t x86_64 \
-  -o android/app/src/main/jniLibs \
+  -o ../android/app/src/main/jniLibs \
   build -p oniris-jni --release
 
+cd ..
 cd android
 ./gradlew :app:assembleDebug
 ```
