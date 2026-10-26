@@ -45,6 +45,9 @@ cargo run --manifest-path ../../core/Cargo.toml -p oniris-cli -- credits <pack-d
 # First default pack: layered pink/brown noise, synthetic and CC0
 cargo run --manifest-path ../../core/Cargo.toml -p oniris-cli -- gen-noise-pack <out-dir>
 
+# All procedural packs: Pure Noise + synthetic Rainy Night
+cargo run --manifest-path ../../core/Cargo.toml -p oniris-cli -- gen-procedural-packs <out-dir>
+
 # Pack, verify, and unpack a distributable archive
 cargo run --manifest-path ../../core/Cargo.toml -p oniris-cli -- \
   pack <pack-dir> <pack-id>.onirispack

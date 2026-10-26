@@ -61,6 +61,10 @@ pub struct Manifest {
     /// Per-asset or pack-level attribution, required for CC BY content.
     #[serde(default)]
     pub credits: Vec<Credit>,
+    /// True when every audible asset in the pack is synthesized. The app uses
+    /// this for its "procedural only" library filter.
+    #[serde(default)]
+    pub procedural: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -647,6 +651,17 @@ mod tests {
         assert_eq!(manifest.credits[0].asset.as_deref(), Some("audio/rain.wav"));
         assert!(manifest.credits[0].modified);
         assert!(manifest.credits[1].asset.is_none());
+    }
+
+    #[test]
+    fn parses_procedural_flag() {
+        let manifest = Manifest::from_json_str(&valid_manifest_json()).unwrap();
+        assert!(!manifest.procedural);
+
+        let mut value: serde_json::Value = serde_json::from_str(&valid_manifest_json()).unwrap();
+        value["procedural"] = serde_json::json!(true);
+        let manifest = Manifest::from_json_str(&value.to_string()).unwrap();
+        assert!(manifest.procedural);
     }
 
     #[test]

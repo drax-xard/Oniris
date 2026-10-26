@@ -118,6 +118,7 @@ into place only after the whole archive validates.
 | `events` | no | Up to 16 event types. |
 | `compatibility` | no | `excludes` lists pack IDs that should not be mixed. |
 | `credits` | no | Up to 64 attribution entries; see “Credit fields”. |
+| `procedural` | no | `true` when every audible asset is synthesized. Used by the app's procedural-only filter. |
 
 ### Bed fields
 

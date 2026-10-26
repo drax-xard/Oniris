@@ -3,6 +3,7 @@ package dev.oniris.data
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -17,6 +18,8 @@ data class Settings(
     val masterVolume: Float = 0.8f,
     /** Sleep timer in minutes; 0 means off. */
     val timerMinutes: Int = 0,
+    /** Hide recorded packs and use only fully synthesized packs. */
+    val proceduralOnly: Boolean = false,
 )
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore("oniris_settings")
@@ -29,6 +32,7 @@ class SettingsStore(context: Context) {
             selectedPackIds = preferences[SELECTED_PACKS].orEmpty(),
             masterVolume = preferences[MASTER_VOLUME] ?: 0.8f,
             timerMinutes = preferences[TIMER_MINUTES] ?: 0,
+            proceduralOnly = preferences[PROCEDURAL_ONLY] ?: false,
         )
     }
 
@@ -44,9 +48,14 @@ class SettingsStore(context: Context) {
         dataStore.edit { it[TIMER_MINUTES] = minutes.coerceAtLeast(0) }
     }
 
+    suspend fun setProceduralOnly(enabled: Boolean) {
+        dataStore.edit { it[PROCEDURAL_ONLY] = enabled }
+    }
+
     private companion object {
         val SELECTED_PACKS = stringSetPreferencesKey("selected_packs")
         val MASTER_VOLUME = floatPreferencesKey("master_volume")
         val TIMER_MINUTES = intPreferencesKey("timer_minutes")
+        val PROCEDURAL_ONLY = booleanPreferencesKey("procedural_only")
     }
 }

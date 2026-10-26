@@ -88,6 +88,8 @@ enum Command {
     },
     /// Generate the first default pack: layered pink/brown noise (CC0).
     GenNoisePack { out: PathBuf },
+    /// Generate all procedural packs: Pure Noise + synthetic Rainy Night (CC0).
+    GenProceduralPacks { out: PathBuf },
     /// Package a pack directory as a deterministic `.onirispack` archive.
     Pack {
         /// Pack directory containing `manifest.json`.
@@ -142,6 +144,7 @@ fn main() -> Result<()> {
         } => normalize_file(&input, &output, target_lufs, true_peak, bitrate),
         Command::GenTestPacks { out, format } => generate::generate_test_packs(&out, format),
         Command::GenNoisePack { out } => generate::generate_noise_pack(&out),
+        Command::GenProceduralPacks { out } => generate::generate_procedural_packs(&out),
         Command::Pack { dir, out } => pack_archive(&dir, &out),
         Command::VerifyPack { archive, sha256 } => verify_pack(&archive, sha256.as_deref()),
         Command::Unpack { archive, dir } => unpack_pack(&archive, &dir),
@@ -429,6 +432,10 @@ fn validate(path: &Path) -> Result<()> {
     println!("  id:        {id}");
     println!("  version:   {}", manifest.version);
     println!("  license:   {}", manifest.license);
+    println!(
+        "  procedural: {}",
+        if manifest.procedural { "yes" } else { "no" }
+    );
     println!("  beds:      {}", pack.bed_count());
     println!("  events:    {}", pack.event_count());
     if !manifest.credits.is_empty() {
@@ -447,6 +454,10 @@ fn print_credits(path: &Path) -> Result<()> {
 
     println!("{} ({})", manifest.display_name("en"), manifest.id);
     println!("  license: {}", manifest.license);
+    println!(
+        "  procedural: {}",
+        if manifest.procedural { "yes" } else { "no" }
+    );
     if manifest.credits.is_empty() {
         println!("  credits: none");
         return Ok(());

@@ -372,8 +372,8 @@ Rules:
 
 1. **Done:** manifest `credits`, `oniris credits`, and an Android licenses
    section. The Android UI still needs a device build to verify.
-2. **Done:** Pure Noise pack generator (`oniris gen-noise-pack packs`), with
-   two normalized CC0 beds and credits.
+2. **Done:** procedural pack generator (`oniris gen-procedural-packs packs`),
+   with Pure Noise and a synthetic Rainy Night, normalized and credited.
 3. Audition 3–5 candidates for Rainy Night and Seaside from Freesound CC0 and
    NPS; record the license/provenance in `sources.csv`.
 4. Add Forest Deep and Cabin Fire once the bed quality is confirmed.

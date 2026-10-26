@@ -82,9 +82,13 @@ fun OnirisApp(
 
     val current = settings
     val selectedIds = current?.selectedPackIds ?: emptySet()
+    val proceduralOnly = current?.proceduralOnly ?: false
+    val availablePacks = if (proceduralOnly) packs.filter { it.procedural } else packs
+    val availableIds = availablePacks.map { it.id }.toSet()
+    val activeSelectedIds = selectedIds.intersect(availableIds)
 
-    LaunchedEffect(packs, selectedIds) {
-        val selection = packs
+    LaunchedEffect(packs, selectedIds, proceduralOnly) {
+        val selection = availablePacks
             .filter { it.id in selectedIds }
             .map { PackSelection(it.id, it.directory) }
         val wasPlaying = PlaybackController.isPlaying.value
@@ -174,6 +178,31 @@ fun OnirisApp(
                     }
                 }
 
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = "Procedural only",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            text = "Show only fully synthesized soundscapes; recorded packs stay hidden.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = proceduralOnly,
+                        onCheckedChange = { enabled ->
+                            scope.launch { settingsStore.setProceduralOnly(enabled) }
+                        },
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+
                 when {
                     loading -> {
                         Row(
@@ -192,11 +221,16 @@ fun OnirisApp(
                             "or bundle it under assets/packs.",
                     )
 
+                    proceduralOnly && availablePacks.isEmpty() -> Notice(
+                        "No procedural packs installed. Generate them with `make procedural`, " +
+                            "then refresh or push them into the app's files/packs directory.",
+                    )
+
                     else -> {
-                        packs.forEach { pack ->
+                        availablePacks.forEach { pack ->
                             PackRow(
                                 pack = pack,
-                                selected = pack.id in selectedIds,
+                                selected = pack.id in activeSelectedIds,
                                 onSelectedChange = { checked ->
                                     scope.launch {
                                         val next = if (checked) {
@@ -256,7 +290,7 @@ fun OnirisApp(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),
-                    enabled = PlaybackController.available && selectedIds.isNotEmpty(),
+                    enabled = PlaybackController.available && activeSelectedIds.isNotEmpty(),
                 ) {
                     Text(if (isPlaying) "Pause" else "Play")
                 }
@@ -267,8 +301,12 @@ fun OnirisApp(
                     text = if (isPlaying) {
                         val megabytes = PlaybackController.decodedBytes() / (1024 * 1024)
                         "Playing · $megabytes MB decoded · offline"
-                    } else if (selectedIds.isEmpty()) {
-                        "Select at least one pack"
+                    } else if (activeSelectedIds.isEmpty()) {
+                        if (proceduralOnly) {
+                            "Select a procedural pack"
+                        } else {
+                            "Select at least one pack"
+                        }
                     } else {
                         "Ready"
                     },
@@ -357,6 +395,9 @@ private fun PackRow(
                     append(" · ")
                     append(pack.eventCount)
                     append(if (pack.eventCount == 1) " event" else " events")
+                    if (pack.procedural) {
+                        append(" · procedural")
+                    }
                     if (pack.tags.isNotEmpty()) {
                         append(" · ")
                         append(pack.tags.take(3).joinToString(", "))

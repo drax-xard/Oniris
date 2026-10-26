@@ -17,6 +17,7 @@ data class PackInfo(
     val eventCount: Int,
     val license: String,
     val credits: List<Credit>,
+    val procedural: Boolean,
     val directory: File,
 )
 
@@ -137,6 +138,7 @@ class PackRepository(context: Context) {
                 eventCount = json.optJSONArray("events")?.length() ?: 0,
                 license = json.optString("license").trim(),
                 credits = credits,
+                procedural = json.optBoolean("procedural", false),
                 directory = directory,
             )
         }.onFailure { Log.w(TAG, "could not read ${directory.name}", it) }.getOrNull()

@@ -20,6 +20,8 @@ use crate::{loudness, opus_encode};
 const RATE: u32 = 48_000;
 const NOISE_LOOP_FRAMES: usize = 60 * RATE as usize;
 const NOISE_FADE_FRAMES: usize = 2 * RATE as usize;
+const RAIN_LOOP_FRAMES: usize = 60 * RATE as usize;
+const RAIN_FADE_FRAMES: usize = 2 * RATE as usize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum AudioFormat {
@@ -97,6 +99,7 @@ fn generate_pure_noise(dir: &Path, loop_frames: usize, fade_frames: usize) -> Re
         },
         "version": "1.0.0",
         "license": "CC0-1.0",
+        "procedural": true,
         "tags": ["noise", "sleep", "focus"],
         "loudnessLufs": -23.0,
         "truePeakDbtp": true_peak,
@@ -189,6 +192,243 @@ fn brown_noise(seed: u64, frames: usize) -> Vec<f32> {
         output.push(right.clamp(-0.9, 0.9));
     }
     output
+}
+
+pub fn generate_procedural_packs(out: &Path) -> Result<()> {
+    fs::create_dir_all(out).with_context(|| format!("failed to create {}", out.display()))?;
+    generate_noise_pack(out)?;
+    generate_procedural_rain_pack(out)?;
+    Ok(())
+}
+
+pub fn generate_procedural_rain_pack(out: &Path) -> Result<()> {
+    fs::create_dir_all(out).with_context(|| format!("failed to create {}", out.display()))?;
+    let dir = out.join("rainy-night-procedural");
+    generate_procedural_rain(&dir, RAIN_LOOP_FRAMES, RAIN_FADE_FRAMES, 5.0, 6, 0.4)?;
+    println!("generated {}", dir.display());
+    Ok(())
+}
+
+fn generate_procedural_rain(
+    dir: &Path,
+    loop_frames: usize,
+    fade_frames: usize,
+    thunder_seconds: f32,
+    drip_count: usize,
+    drip_seconds: f32,
+) -> Result<()> {
+    fs::create_dir_all(dir.join("audio"))?;
+
+    let source = procedural_rain_source(0x7A1, loop_frames + fade_frames);
+    let rain = crossfade_loop(&source, loop_frames, fade_frames);
+    let before = loudness::measure(&rain, 2, RATE);
+    if !before.integrated_lufs.is_finite() {
+        anyhow::bail!("procedural rain measured as silence");
+    }
+    let rain = loudness::apply_gain(&rain, -23.0 - before.integrated_lufs);
+    let after = loudness::measure(&rain, 2, RATE);
+
+    let rain_file = write_audio(dir, "rain", 2, &rain, AudioFormat::Opus)?;
+
+    let thunder_durations = [
+        thunder_seconds,
+        thunder_seconds * 1.2,
+        thunder_seconds * 0.9,
+    ];
+    let mut thunder_files = Vec::with_capacity(thunder_durations.len());
+    let mut credits = vec![serde_json::json!({
+        "asset": &rain_file,
+        "title": "Procedural rain",
+        "author": "Oniris",
+        "source": "synthetic",
+        "license": "CC0-1.0",
+        "modified": false
+    })];
+    for (index, seconds) in thunder_durations.iter().enumerate() {
+        let event = normalize_peak(&thunder(0x7B0 + index as u64, *seconds), -3.0);
+        let name = format!("thunder-{:02}", index + 1);
+        let file = write_audio(dir, &name, 1, &event, AudioFormat::Opus)?;
+        credits.push(serde_json::json!({
+            "asset": &file,
+            "title": name,
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }));
+        thunder_files.push(file);
+    }
+
+    let mut drip_files = Vec::with_capacity(drip_count);
+    for index in 0..drip_count {
+        let event = normalize_peak(&drip_event(0xD81 + index as u64, drip_seconds), -6.0);
+        let name = format!("drip-{:02}", index + 1);
+        let file = write_audio(dir, &name, 1, &event, AudioFormat::Opus)?;
+        credits.push(serde_json::json!({
+            "asset": &file,
+            "title": name,
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }));
+        drip_files.push(file);
+    }
+
+    let true_peak = if after.true_peak_dbtp.is_finite() {
+        (f64::from(after.true_peak_dbtp) * 10.0).round() / 10.0
+    } else {
+        -1.5
+    };
+    let manifest = serde_json::json!({
+        "schemaVersion": 1,
+        "id": "rainy-night-procedural",
+        "name": { "en": "Rainy Night (Synthetic)" },
+        "description": {
+            "en": "A fully synthesized rainstorm with distant thunder and scattered droplets. No recordings."
+        },
+        "version": "1.0.0",
+        "license": "CC0-1.0",
+        "procedural": true,
+        "tags": ["rain", "storm", "night", "procedural"],
+        "loudnessLufs": -23.0,
+        "truePeakDbtp": true_peak,
+        "beds": [{
+            "id": "rain",
+            "file": &rain_file,
+            "loop": { "startSample": 0, "endSample": loop_frames },
+            "gainDb": 0.0,
+            "lfo": { "target": "gain", "depth": 0.5, "periodSec": 37.0 }
+        }],
+        "events": [
+            {
+                "id": "thunder",
+                "files": thunder_files,
+                "minIntervalSec": 18.0,
+                "maxIntervalSec": 45.0,
+                "initialDelaySec": 6.0,
+                "gainDb": [-14.0, -6.0],
+                "pan": [-0.4, 0.4],
+                "fadeInMs": 150,
+                "fadeOutMs": 3000,
+                "maxVoices": 1
+            },
+            {
+                "id": "drips",
+                "files": drip_files,
+                "minIntervalSec": 1.5,
+                "maxIntervalSec": 6.0,
+                "initialDelaySec": 0.5,
+                "gainDb": [-24.0, -12.0],
+                "pan": [-0.8, 0.8],
+                "fadeInMs": 10,
+                "fadeOutMs": 80,
+                "maxVoices": 3
+            }
+        ],
+        "credits": credits
+    });
+    fs::write(
+        dir.join("manifest.json"),
+        serde_json::to_string_pretty(&manifest)?,
+    )?;
+    Ok(())
+}
+
+fn procedural_rain_source(seed: u64, frames: usize) -> Vec<f32> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut output = vec![0.0f32; frames * 2];
+
+    // Dense droplets: short damped resonances scattered across the loop.
+    let drops = (frames as f32 * 0.0015) as usize;
+    for _ in 0..drops {
+        let start = rng.gen_range(0..frames.saturating_sub(1));
+        let frequency = rng.gen_range(1_500.0f32..6_000.0);
+        let amplitude = rng.gen_range(0.008f32..0.060);
+        let decay = rng.gen_range(0.004f32..0.018);
+        let pan = rng.gen_range(-0.8f32..0.8);
+        let (pan_l, pan_r) = pan_gains(pan);
+        let length = ((decay * 6.0 * RATE as f32) as usize).max(1);
+
+        for offset in 0..length {
+            let index = start + offset;
+            if index >= frames {
+                break;
+            }
+            let time = offset as f32 / RATE as f32;
+            let envelope = (-time / decay).exp();
+            let sample = (TAU * frequency * time).sin() * envelope * amplitude;
+            output[index * 2] += sample * pan_l;
+            output[index * 2 + 1] += sample * pan_r;
+        }
+    }
+
+    // Pink-ish hiss with a slow swell. Pink noise is closer to rain than a
+    // flat-spectrum hiss and is less fatiguing at low volume.
+    let mut low_l = 0.0f32;
+    let mut low_r = 0.0f32;
+    let mut pink_l = [0.0f32; 7];
+    let mut pink_r = [0.0f32; 7];
+    let low_pass = 0.96f32;
+    for frame in 0..frames {
+        let white_l = rng.gen_range(-1.0f32..1.0);
+        let white_r = rng.gen_range(-1.0f32..1.0);
+        let hiss_l = pink_sample(&mut pink_l, white_l);
+        let hiss_r = pink_sample(&mut pink_r, white_r);
+        low_l = low_pass * low_l + (1.0 - low_pass) * hiss_l;
+        low_r = low_pass * low_r + (1.0 - low_pass) * hiss_r;
+        let swell = 0.85 + 0.15 * (TAU * frame as f32 / (RATE as f32 * 9.0)).sin();
+        output[frame * 2] += (hiss_l - low_l) * 0.24 * swell;
+        output[frame * 2 + 1] += (hiss_r - low_r) * 0.24 * swell;
+    }
+
+    for sample in &mut output {
+        *sample = sample.clamp(-0.95, 0.95);
+    }
+    output
+}
+
+fn drip_event(seed: u64, seconds: f32) -> Vec<i16> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let frames = (seconds * RATE as f32) as usize;
+    let frequency = rng.gen_range(1_200.0f32..3_600.0);
+    let decay = rng.gen_range(0.015f32..0.060);
+    let mut output = Vec::with_capacity(frames);
+
+    for frame in 0..frames {
+        let time = frame as f32 / RATE as f32;
+        let envelope = (-time / decay).exp();
+        let pitch_drop = 1.0 - 0.15 * (time / (decay * 6.0)).min(1.0);
+        let mut sample = (TAU * frequency * pitch_drop * time).sin() * envelope;
+        if time < 0.002 {
+            sample += rng.gen_range(-1.0f32..1.0) * (1.0 - time / 0.002) * 0.3;
+        }
+        output.push((sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16);
+    }
+    output
+}
+
+fn normalize_peak(samples: &[i16], target_dbfs: f32) -> Vec<i16> {
+    let peak = samples
+        .iter()
+        .map(|sample| sample.unsigned_abs())
+        .max()
+        .unwrap_or(0) as f32
+        / i16::MAX as f32;
+    if peak <= 0.0 {
+        return samples.to_vec();
+    }
+    let gain_db = target_dbfs - 20.0 * peak.log10();
+    loudness::apply_gain(samples, gain_db)
+}
+
+fn pan_gains(pan: f32) -> (f32, f32) {
+    let pan = pan.clamp(-1.0, 1.0);
+    if pan < 0.0 {
+        (1.0, 1.0 + pan)
+    } else {
+        (1.0 - pan, 1.0)
+    }
 }
 
 fn generate_rain(dir: &Path, format: AudioFormat) -> Result<()> {
@@ -470,6 +710,33 @@ mod tests {
     use oniris_core::decode_audio;
 
     #[test]
+    fn generates_valid_procedural_rain_pack() {
+        let dir = tempfile::tempdir().unwrap();
+        let pack = dir.path().join("rainy-night-procedural");
+        let frames = 10 * RATE as usize;
+        generate_procedural_rain(&pack, frames, RATE as usize, 1.2, 4, 0.25).unwrap();
+
+        let manifest = Manifest::load(&pack).unwrap();
+        manifest.validate_files(&pack).unwrap();
+        assert!(manifest.procedural);
+        assert_eq!(manifest.id, "rainy-night-procedural");
+        assert_eq!(manifest.beds.len(), 1);
+        assert_eq!(manifest.events.len(), 2);
+        assert_eq!(manifest.events[0].files.len(), 3);
+        assert_eq!(manifest.events[1].files.len(), 4);
+        assert_eq!(manifest.credits.len(), 8);
+
+        let audio = decode_audio(&pack.join("audio/rain.opus"), RATE).unwrap();
+        assert_eq!(audio.frames, frames);
+        let measurement = crate::loudness::measure(&audio.samples, audio.channels, RATE);
+        assert!(
+            (measurement.integrated_lufs + 23.0).abs() < 1.0,
+            "loudness {}",
+            measurement.integrated_lufs
+        );
+    }
+
+    #[test]
     fn generates_valid_pure_noise_pack() {
         let dir = tempfile::tempdir().unwrap();
         let pack = dir.path().join("pure-noise");
@@ -480,6 +747,7 @@ mod tests {
         manifest.validate_files(&pack).unwrap();
 
         assert_eq!(manifest.id, "pure-noise");
+        assert!(manifest.procedural);
         assert_eq!(manifest.beds.len(), 2);
         assert_eq!(manifest.credits.len(), 2);
         assert_eq!(

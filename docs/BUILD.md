@@ -36,9 +36,12 @@ Generate test content and render a mix:
 # Ogg/Opus by default, matching production assets
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- gen-test-packs packs
 
-# Default Pure Noise pack (synthetic, CC0)
+# Default procedural packs: Pure Noise + synthetic Rainy Night (CC0)
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- gen-procedural-packs packs
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- credits packs/rainy-night-procedural
+
+# Pure Noise only
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- gen-noise-pack packs
-cargo run --manifest-path core/Cargo.toml -p oniris-cli -- credits packs/pure-noise
 
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- validate packs/test-rain
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
