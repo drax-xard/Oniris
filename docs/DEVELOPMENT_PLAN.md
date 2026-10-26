@@ -1,9 +1,15 @@
 # Oniris — Development Plan
 
-**Status:** Draft v0.2 — decisions locked, scaffolding started  
+**Status:** Draft v0.3 — decisions locked, core and Android scaffold working  
 **Product:** Android sleep-soundscape app with a portable audio core and an open sound-pack format.  
 **Working name:** Oniris (Oneiros = dream).  
 **Goal:** Mix seamless, non-repetitive soundscapes, run all night on battery, and make new content cheap to add.
+
+**Progress (Oct 2026):** Rust core, pack spec, CLI, JNI, and Android shell are
+implemented and build. The debug APK runs on an Android 36 emulator: pack
+discovery, play/pause, media session, foreground notification, audio focus, and
+wake lock all work. Opus decode, real content, OEM testing, and the 8-hour
+battery soak remain.
 
 ## Locked decisions (v1)
 
@@ -221,14 +227,14 @@ JNI surface stays small:
 
 ### 5.6 Android layer
 
-- **Service:** `MediaSessionService` with `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, service type `mediaPlayback`.
-- **Player:** `SimpleBasePlayer` wrapper around the native engine. Exposes play/pause, duration = unknown/live, metadata, and custom commands for timer/gain.
+- **Service:** foreground service with `FOREGROUND_SERVICE_MEDIA_PLAYBACK` and service type `mediaPlayback`. The scaffold uses `MediaSessionCompat`; the production refactor moves to a Media3 `MediaSessionService` with a `SimpleBasePlayer` wrapper.
+- **Player:** a dedicated render thread drives the native engine; Media3 exposes play/pause, live duration, metadata, and custom commands for timer/gain once the adapter lands.
 - **Audio:** `AudioTrack` streaming, `ENCODING_PCM_16BIT`, 48 kHz stereo, `PERFORMANCE_MODE_POWER_SAVING` (API 26+), music stream, buffer 2×4096 frames, `WRITE_BLOCKING`.
 - **Thread:** dedicated render thread at `THREAD_PRIORITY_URGENT_AUDIO`; it owns the audio loop and `AudioTrack.write`.
 - **Focus:** `AudioFocusRequest` with `AUDIOFOCUS_GAIN`; duck to 20% on transient-can-duck; pause on loss; resume only if it was playing. Do not fight other media.
 - **Becoming noisy:** pause when headphones are unplugged by default (configurable), to avoid blasting a speaker at night.
 - **Wake lock:** acquire a named `PARTIAL_WAKE_LOCK` only while playing if testing shows it is needed; release on pause/stop/destroy. Audio playback may already hold an audio-HAL wake lock, but verify on real devices.
-- **Notification:** Media3 notification with play/pause/stop, timer remaining, pack art; update only on state changes, not per second.
+- **Notification:** media-style notification with play/pause/stop; update only on state changes, not per second. Timer remaining and pack art are not shown yet.
 - **Lifecycle:** if the process dies, do not silently restart audio. Persist "was playing" and let the user resume; use `START_NOT_STICKY` unless testing shows a need otherwise.
 - **Permissions:** `POST_NOTIFICATIONS` (Android 13+) requested in context; `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_MEDIA_PLAYBACK`; no storage permission (app-private packs); no location; no network for bundled playback.
 - **Battery optimization:** provide a help screen for OEMs that kill background apps; media foreground services are usually exempt, but Samsung/Xiaomi/Oppo need testing.
@@ -506,6 +512,11 @@ Assumes one developer working roughly full-time, with content sourcing in parall
 **Beta:** week 13.  
 **Launch:** week 15.
 
+**Scaffold progress:** phase 0 (spike), phase 1 (core minus Opus), and phase 2
+(playback spine) are substantially done. Phase 3 (mixer UX) has pack selection,
+master volume, and the timer; presets, per-pack volume, lock-screen metadata,
+and a quick tile are open.
+
 Content sourcing and licensing start in week 1; they are the most likely schedule risk.
 
 ---
@@ -547,28 +558,33 @@ Content sourcing and licensing start in week 1; they are the most likely schedul
 
 ## 14. Open decisions
 
-1. **Core language:** Rust (recommended) vs Kotlin-only MVP vs C++. Rust is the portability/battery bet; it adds NDK build work.
-2. **Monetization:** free + paid packs, one-time Pro unlock (custom packs/curves), or subscription. No ads at night regardless.
-3. **Content:** DIY CC0 vs commissioned recordings. Budget and timeline depend on this.
-4. **Device scope:** phone/tablet only for v1? Wear/TV/Auto later?
-5. **Crash reporting:** Play Console vitals only (privacy-friendly) vs opt-in Sentry.
-6. **Name/trademark:** confirm "Oniris" is clear in the sleep/audio category.
-7. **Analytics:** recommend none in v1; use Play Console + optional in-app feedback.
+Resolved: Rust core, free app, CC0/CC-BY/self-authored content, phone/tablet
+first, desktop/web portability.
 
----
+Still open:
+
+1. **Code license:** MIT vs Apache-2.0 (or dual) before public release.
+2. **Crash reporting:** Play Console vitals only (privacy-friendly) vs opt-in Sentry.
+3. **Name/trademark:** confirm "Oniris" is clear in the sleep/audio category.
+4. **Content sourcing:** own recordings vs commissioned vs CC0 curation, and the
+   budget for each.
+5. **Pack distribution:** bundled in the APK vs downloadable `.onirispack` files
+   (with signature/verification) for v1.0.
+6. **Analytics:** recommend none in v1; use Play Console + optional in-app feedback.
+7. **Streaming:** no network for playback in v1; revisit only for pack downloads.
 
 ## 15. First 10 concrete tasks
 
-1. Write `docs/PACK_FORMAT.md` v0 and a JSON Schema.
-2. Create the Rust workspace skeleton and a CLI that renders a sine/noise loop to WAV.
-3. Produce two test beds (rain, fire) and four events with the asset pipeline; verify seamless loops.
-4. Implement the mixer + scheduler and render a 60-minute test WAV; listen for repetition/clicks.
-5. Spike JNI + `AudioTrack`: render native audio on a real device; measure CPU/underruns.
-6. Spike Media3 `SimpleBasePlayer` + `MediaSessionService`: notification, lock screen, play/pause.
-7. Run a 1-hour battery baseline; extrapolate to 8 hours; decide buffer/wake-lock strategy.
-8. Build the Compose shell: home, library, mixer, now playing; fake engine first.
-9. Define the pack storage/download strategy and implement bundled-pack extraction.
-10. Set up CI (Rust tests + Gradle build + ABI packaging) before adding content.
+1. [x] Write `docs/PACK_FORMAT.md` v0; the JSON Schema is still to add.
+2. [x] Create the Rust workspace skeleton and a CLI that renders a test loop to WAV.
+3. [x] Generate synthetic rain/fire beds and events; loop points and crossfades work.
+4. [x] Implement the mixer + scheduler; 60-minute listening QA is still pending.
+5. [x] Spike JNI + `AudioTrack` (emulator); real-device CPU/underrun measurement pending.
+6. [x] Spike a media session + foreground service; Media3 adapter is a later refactor.
+7. [ ] Run a 1-hour battery baseline; extrapolate to 8 hours.
+8. [x] Build the Compose shell: library, mixer, timer, now playing.
+9. [x] Bundled-pack extraction and app-private storage.
+10. [x] Set up CI (Rust tests + Gradle build + ABI packaging).
 
 ---
 

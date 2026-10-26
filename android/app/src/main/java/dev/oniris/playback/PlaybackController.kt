@@ -68,8 +68,9 @@ object PlaybackController {
         if (_isPlaying.value) return true
 
         if (loadedSelections != selections) {
-            renderThread?.stop()
-            renderThread = null
+            if (!stopRenderThread()) {
+                return fail("Audio is still stopping; try again in a moment")
+            }
             current.stop()
             current.close()
             current = NativeEngine()
@@ -104,7 +105,6 @@ object PlaybackController {
                 return fail("Could not apply the mix")
             }
             loadedSelections = selections
-            masterGain = 0.8f
         }
 
         current.play()
@@ -118,8 +118,8 @@ object PlaybackController {
             releaseWakeLock()
         }
         renderThread = thread
-        thread.start()
         _isPlaying.value = true
+        thread.start()
         _message.value = null
         true
     }
@@ -127,9 +127,9 @@ object PlaybackController {
     /** Stop immediately; the UI restarts playback from silence. */
     fun pause() {
         synchronized(lock) {
-            renderThread?.stop()
-            renderThread = null
-            engine?.stop()
+            if (stopRenderThread()) {
+                engine?.stop()
+            }
             releaseWakeLock()
             _isPlaying.value = false
         }
@@ -137,9 +137,9 @@ object PlaybackController {
 
     fun stop() {
         synchronized(lock) {
-            renderThread?.stop()
-            renderThread = null
-            engine?.stop()
+            if (stopRenderThread()) {
+                engine?.stop()
+            }
             releaseWakeLock()
             _isPlaying.value = false
         }
@@ -186,6 +186,19 @@ object PlaybackController {
         } else {
             engine.clearSleepTimer()
         }
+    }
+
+    /**
+     * Returns true when no render thread is left running. On failure the
+     * reference is kept so a later call can join it before freeing memory.
+     */
+    private fun stopRenderThread(): Boolean {
+        val current = renderThread ?: return true
+        if (current.stop()) {
+            renderThread = null
+            return true
+        }
+        return false
     }
 
     @SuppressLint("WakelockTimeout")

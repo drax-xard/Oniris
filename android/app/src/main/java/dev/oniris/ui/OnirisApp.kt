@@ -265,7 +265,8 @@ fun OnirisApp(
 
                 Text(
                     text = if (isPlaying) {
-                        "Playing · offline · no ads, no accounts"
+                        val megabytes = PlaybackController.decodedBytes() / (1024 * 1024)
+                        "Playing · $megabytes MB decoded · offline"
                     } else if (selectedIds.isEmpty()) {
                         "Select at least one pack"
                     } else {

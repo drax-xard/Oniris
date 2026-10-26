@@ -6,6 +6,15 @@ The audio engine is written in Rust so the same sound model can run on Android t
 
 **Status:** early scaffold. The Rust core, pack format, CLI, and Android shell are in place, and the Android debug APK builds with JDK 21 + SDK 36. The first real sound packs and the production Opus decoder are next.
 
+## What works today
+
+- Rust core: manifest validation, WAV decode/resample, seamless bed loops, randomized event voices, LFOs, fades, sleep timer, limiter.
+- `oniris` CLI: generate synthetic test packs, validate, render, analyze.
+- Android app: pack library, multi-pack selection, volume, sleep timer, foreground media notification, audio focus, wake lock, persisted settings.
+- Native library builds for `arm64-v8a`, `armeabi-v7a`, and `x86_64`; debug and release APKs assemble.
+
+Smoke-tested on an Android 36 x86_64 emulator: pack discovery, play/pause, media-session state, foreground notification, and wake-lock acquire/release all work. On-device battery and audio soak tests are still pending.
+
 ## Why this architecture
 
 - **Decode once, mix from memory.** Packs are decoded when a mix starts. During playback the app only mixes PCM and writes one `AudioTrack`. There are no live decoders, file reads, or network calls at night.

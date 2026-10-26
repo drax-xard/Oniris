@@ -108,10 +108,17 @@ class AudioRenderThread(
         }
     }
 
-    fun stop() {
+    /**
+     * Stop the render loop. Returns false if the thread did not exit within
+     * 1.5 s (for example a wedged audio HAL); the caller must then leave the
+     * native engine alive rather than freeing memory the thread may still use.
+     */
+    fun stop(): Boolean {
         running = false
-        thread?.join(1_500)
+        val current = thread ?: return true
+        current.join(1_500)
         thread = null
+        return !current.isAlive
     }
 
     private companion object {
