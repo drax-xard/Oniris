@@ -93,7 +93,7 @@ class AudioRenderThread(
                     break
                 }
 
-                if (engine.isFinished()) break
+                if (engine.isFinished() || engine.isPaused()) break
             }
         } catch (error: Throwable) {
             Log.e(TAG, "audio render loop failed", error)

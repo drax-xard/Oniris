@@ -36,6 +36,9 @@ object PlaybackController {
     private var packGains: Map<String, Float> = emptyMap()
     private var timerMinutes: Int = 0
 
+    @Volatile
+    private var pausing = false
+
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
@@ -84,6 +87,15 @@ object PlaybackController {
         val current = engine ?: return fail("Native engine is not initialized")
         if (!current.available) return fail("Native engine is not built for this device")
         if (selections.isEmpty()) return fail("Add at least one sound pack first")
+        if (pausing && renderThread?.isRunning == true) {
+            // Reverse a pause fade that is still running.
+            pausing = false
+            current.play()
+            _isPlaying.value = true
+            _message.value = null
+            return true
+        }
+        pausing = false
         if (_isPlaying.value) return true
         if (!stopRenderThread()) {
             return fail("Audio is still stopping; try again in a moment")
@@ -98,6 +110,7 @@ object PlaybackController {
 
         val thread = AudioRenderThread(current) {
             // Runs on the audio thread; do not join here.
+            pausing = false
             _isPlaying.value = false
             releaseWakeLock()
         }
@@ -148,19 +161,27 @@ object PlaybackController {
         return true
     }
 
-    /** Stop immediately; the UI restarts playback from silence. */
+    /** Fade out over the engine's pause ramp, then let the render thread exit. */
     fun pause() {
         synchronized(lock) {
-            if (stopRenderThread()) {
-                engine?.stop()
+            val current = engine ?: return
+            if (!_isPlaying.value) return
+            if (renderThread == null) {
+                current.stop()
+                pausing = false
+                _isPlaying.value = false
+                releaseWakeLock()
+                return
             }
-            releaseWakeLock()
+            pausing = true
             _isPlaying.value = false
+            current.pause()
         }
     }
 
     fun stop() {
         synchronized(lock) {
+            pausing = false
             if (stopRenderThread()) {
                 engine?.stop()
             }

@@ -42,6 +42,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -359,6 +362,10 @@ fun OnirisApp(
                         onCheckedChange = { enabled ->
                             scope.launch { settingsStore.setProceduralOnly(enabled) }
                         },
+                        modifier = Modifier.semantics {
+                            contentDescription = "Procedural packs only"
+                            stateDescription = if (proceduralOnly) "On" else "Off"
+                        },
                     )
                 }
                 Spacer(Modifier.height(10.dp))
@@ -432,6 +439,11 @@ fun OnirisApp(
                         scope.launch { settingsStore.setMasterVolume(value) }
                     },
                     valueRange = 0f..1f,
+                    modifier = Modifier.semantics {
+                        contentDescription = "Master volume"
+                        stateDescription =
+                            "${((current?.masterVolume ?: 0.8f) * 100).roundToInt()} percent"
+                    },
                 )
 
                 Spacer(Modifier.height(12.dp))
@@ -613,11 +625,22 @@ private fun PresetRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            TextButton(onClick = onApply, enabled = available) {
+            TextButton(
+                onClick = onApply,
+                enabled = available,
+                modifier = Modifier.semantics {
+                    contentDescription = "Apply ${preset.name}"
+                },
+            ) {
                 Text("Apply")
             }
             if (onDelete != null) {
-                TextButton(onClick = onDelete) {
+                TextButton(
+                    onClick = onDelete,
+                    modifier = Modifier.semantics {
+                        contentDescription = "Delete ${preset.name}"
+                    },
+                ) {
                     Text("Delete")
                 }
             }
@@ -692,15 +715,36 @@ private fun PackRow(
                             value = gain,
                             onValueChange = onGainChange,
                             valueRange = 0f..1f,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .semantics {
+                                    contentDescription = "${pack.name} volume"
+                                    stateDescription = "${(gain * 100).roundToInt()} percent"
+                                },
                         )
                     }
                 }
             }
             Spacer(Modifier.width(12.dp))
             Column(horizontalAlignment = Alignment.End) {
-                Switch(checked = selected, onCheckedChange = onSelectedChange)
-                TextButton(onClick = onPreview) {
+                Switch(
+                    checked = selected,
+                    onCheckedChange = onSelectedChange,
+                    modifier = Modifier.semantics {
+                        contentDescription = "Include ${pack.name} in the mix"
+                        stateDescription = if (selected) "Included" else "Not included"
+                    },
+                )
+                TextButton(
+                    onClick = onPreview,
+                    modifier = Modifier.semantics {
+                        contentDescription = if (previewing) {
+                            "Stop preview of ${pack.name}"
+                        } else {
+                            "Preview ${pack.name}"
+                        }
+                    },
+                ) {
                     Text(if (previewing) "Stop" else "Preview")
                 }
             }

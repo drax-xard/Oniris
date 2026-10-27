@@ -80,6 +80,9 @@ class NativeEngine(sampleRate: Int = 48_000) : AutoCloseable {
     fun isFinished(): Boolean = handle != 0L && nativeIsFinished(handle)
 
     @Synchronized
+    fun isPaused(): Boolean = handle != 0L && nativeIsPaused(handle)
+
+    @Synchronized
     fun decodedBytes(): Long = if (handle == 0L) 0L else nativeDecodedBytes(handle)
 
     override fun close() {
@@ -105,5 +108,6 @@ class NativeEngine(sampleRate: Int = 48_000) : AutoCloseable {
     private external fun nativeClearSleepTimer(handle: Long)
     private external fun nativeRender(handle: Long, buffer: ByteBuffer, frames: Int): Int
     private external fun nativeIsFinished(handle: Long): Boolean
+    private external fun nativeIsPaused(handle: Long): Boolean
     private external fun nativeDecodedBytes(handle: Long): Long
 }

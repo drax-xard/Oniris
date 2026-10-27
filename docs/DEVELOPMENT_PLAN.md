@@ -8,7 +8,7 @@
 **Progress (Oct 2026):** Rust core, pack spec, CLI, JNI, Android shell,
 Ogg/Opus decode/encode, deterministic `.onirispack` packaging/extraction, EBU
 R128 loudness/true-peak measurement and normalization, live mix crossfades,
-click-free per-pack gain ramps, manifest attribution credits, four generated
+click-free per-pack gain ramps and pause/resume fades, manifest attribution credits, four generated
 CC0 procedural packs (Pure Noise, Rainy Night, Deep Space Cabin, Enchanted
 Forest), a procedural-only library mode, Android `.onirispack` import, 30-second
 pack previews, per-pack volume, built-in/user presets, live mix changes,

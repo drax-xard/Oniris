@@ -277,6 +277,17 @@ pub extern "system" fn Java_dev_oniris_audio_NativeEngine_nativeIsFinished(
 }
 
 #[no_mangle]
+pub extern "system" fn Java_dev_oniris_audio_NativeEngine_nativeIsPaused(
+    _env: JNIEnv,
+    _this: JObject,
+    handle: jlong,
+) -> jboolean {
+    engine_mut(handle)
+        .map(|engine| engine.is_paused() as jboolean)
+        .unwrap_or(0)
+}
+
+#[no_mangle]
 pub extern "system" fn Java_dev_oniris_audio_NativeEngine_nativeDecodedBytes(
     _env: JNIEnv,
     _this: JObject,

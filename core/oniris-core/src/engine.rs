@@ -287,6 +287,12 @@ impl Engine {
         self.finished
     }
 
+    /// True after a `pause()` fade has completed. The render thread uses this
+    /// to stop without cutting the fade short.
+    pub fn is_paused(&self) -> bool {
+        self.state == TransportState::Paused
+    }
+
     pub fn master_gain(&self) -> f32 {
         self.master_gain
     }
@@ -596,6 +602,7 @@ impl Engine {
         if self.state == TransportState::Playing {
             return;
         }
+        let resume = matches!(self.state, TransportState::Pausing | TransportState::Paused);
         if self.finished {
             self.finished = false;
             self.timer_active = false;
@@ -603,7 +610,11 @@ impl Engine {
         }
         self.state = TransportState::Playing;
         self.transport_target = 1.0;
-        self.transport_remaining = self.fade_in_frames.max(1);
+        self.transport_remaining = if resume {
+            self.pause_fade_frames.max(1)
+        } else {
+            self.fade_in_frames.max(1)
+        };
         self.transport_step =
             (self.transport_target - self.transport_gain) / self.transport_remaining as f32;
         self.limiter.reset();
@@ -1530,6 +1541,54 @@ mod tests {
             "gain ramp introduced a discontinuity: {}",
             max_sample_delta(&out, 2)
         );
+    }
+
+    #[test]
+    fn pause_fades_and_resumes_without_a_click() {
+        let dir = tempfile::tempdir().unwrap();
+        make_tone_pack(dir.path(), "tone-pack", 100.0, 0.5);
+
+        let mut engine = Engine::new(48_000);
+        engine.set_fade_in(Duration::ZERO);
+        let id = engine.load_pack(dir.path()).unwrap();
+        engine
+            .set_mix(&MixSpec::new(vec![MixEntry {
+                id,
+                gain_db: 0.0,
+                muted: false,
+            }]))
+            .unwrap();
+        engine.play();
+
+        let mut settled = vec![0i16; 4_800 * 2];
+        engine.render_i16(&mut settled, 4_800);
+
+        engine.pause();
+        let frames = 12_000; // 250 ms, longer than the 200 ms pause fade
+        let mut out = vec![0i16; frames * 2];
+        engine.render_i16(&mut out, frames);
+        assert!(engine.is_paused(), "pause fade did not complete");
+        assert!(
+            out[frames * 2 - 2].abs() < 100,
+            "pause fade did not reach silence: {}",
+            out[frames * 2 - 2]
+        );
+        assert!(
+            max_sample_delta(&out, 2) < 1_000,
+            "pause fade introduced a discontinuity: {}",
+            max_sample_delta(&out, 2)
+        );
+
+        engine.play();
+        let mut resumed = vec![0i16; 12_000 * 2];
+        engine.render_i16(&mut resumed, 12_000);
+        assert!(!engine.is_paused(), "resume did not leave the paused state");
+        let peak = resumed
+            .iter()
+            .map(|sample| sample.unsigned_abs())
+            .max()
+            .unwrap();
+        assert!(peak > 5_000, "resume did not restore audio: peak {peak}");
     }
 
     #[test]

@@ -1,4 +1,4 @@
-# Oniris 1.0.0-beta2 — tester guide
+# Oniris 1.0.0-beta3 — tester guide
 
 This is an internal, release-mode Android beta for real-device testing. It is
 not a Play Store build.
@@ -68,8 +68,8 @@ not a Play Store build.
 - **Master volume** — Overall output level.
 - **Sleep timer** — Off, 15, 30, 45, 60, or 90 minutes. The final 60 seconds
   fade out.
-- **Play/Pause** — Starts or stops the render thread. Pause is immediate in this
-  beta; a fade-out pause is planned.
+- **Play/Pause** — Starts or stops the render thread. Pause fades out over about
+  200 ms, and resuming fades back in over the same interval.
 - **Background playback** — Use the notification or lock-screen controls. The
   active mix name is shown as media metadata.
 - **Quick Settings tile** — Add Oniris from the Quick Settings tile editor, then
@@ -100,6 +100,7 @@ Then use **Import** in the app and choose the file from Downloads.
 ## Suggested test pass
 
 - Play each built-in preset for at least 10 minutes.
+- Pause and resume during playback; confirm the fade is smooth and does not click.
 - Preview each pack; confirm it starts within a second, fades in, stops at 30
   seconds, and stops when you press Play.
 - Lock the screen and verify notification/lock-screen play, pause, stop, and
@@ -120,8 +121,6 @@ Then use **Import** in the app and choose the file from Downloads.
 - **No in-app download browser.** Pack import is manual; previews are included.
 - **MediaSessionCompat, not Media3.** Controls and metadata work, but the
   planned Media3 adapter is not implemented.
-- **Pause is immediate.** The sleep-timer fade is implemented; a short pause
-  fade is still planned.
 - **No timer remaining or pack art in the notification.**
 - **No on-device battery/thermal/underrun validation yet.** The design targets
   under 2% CPU and under 3%/h drain, but this build has not completed the
@@ -149,7 +148,7 @@ Please include:
 
 ## Build metadata
 
-- Version: `1.0.0-beta2` (`versionCode 3`)
+- Version: `1.0.0-beta3` (`versionCode 4`)
 - Package: `dev.oniris`
 - ABIs: `arm64-v8a`, `armeabi-v7a`, `x86_64`
 - Signed with the internal `Oniris Beta` test key.
