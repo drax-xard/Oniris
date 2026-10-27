@@ -50,6 +50,11 @@ into place only after the whole archive validates.
 
 ## Manifest (schema version 1)
 
+The machine-readable Draft 2020-12 schema is
+[`manifest.schema.json`](manifest.schema.json). `oniris validate` and the
+Android importer apply the stricter Rust checks (safe paths, files, decode,
+loop bounds, memory budget).
+
 ```json
 {
   "schemaVersion": 1,
@@ -207,8 +212,9 @@ The loader must:
 
 `cargo run -p oniris-cli -- validate <dir>` performs structural, path, and decode
 validation for both WAV and Ogg/Opus assets. `pack`, `verify-pack`, and `unpack`
-apply the same rules to `.onirispack` archives; the Android import path should
-reuse the Rust archive module via JNI rather than reimplementing zip handling.
+apply the same rules to `.onirispack` archives. The Android importer calls the
+same Rust `install_archive`/`unpack_archive` path via JNI, then decodes the pack
+once with a throwaway engine before publishing it to the library.
 
 ## Authoring checklist
 

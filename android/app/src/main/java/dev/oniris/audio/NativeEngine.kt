@@ -34,8 +34,8 @@ class NativeEngine(sampleRate: Int = 48_000) : AutoCloseable {
         handle != 0L && nativeSetMix(handle, json) == 0
 
     @Synchronized
-    fun setPackGainDb(id: String, gainDb: Float): Boolean =
-        handle != 0L && nativeSetPackGain(handle, id, gainDb) == 0
+    fun setPackGain(id: String, gain: Float): Boolean =
+        handle != 0L && nativeSetPackGain(handle, id, gain) == 0
 
     @Synchronized
     fun setMasterGain(gain: Float) {

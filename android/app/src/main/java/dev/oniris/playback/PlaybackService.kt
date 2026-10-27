@@ -30,6 +30,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -89,12 +90,26 @@ class PlaybackService : Service() {
         )
 
         stateJob = serviceScope.launch {
-            PlaybackController.isPlaying.collect { playing ->
-                if (!playing && foregroundStarted) {
-                    updateMediaState(PlaybackStateCompat.STATE_PAUSED)
-                    notifyPaused()
+            combine(
+                PlaybackController.isPlaying,
+                PlaybackController.mixTitle,
+            ) { playing, title -> playing to title }
+                .collect { (playing, _) ->
+                    if (!foregroundStarted) return@collect
+                    updateMetadata()
+                    when {
+                        playing -> notifyPlaying()
+                        playbackJob?.isActive == true -> {
+                            // Packs are still loading; keep the buffering
+                            // notification instead of flashing "Paused".
+                        }
+
+                        else -> {
+                            updateMediaState(PlaybackStateCompat.STATE_PAUSED)
+                            notifyPaused()
+                        }
+                    }
                 }
-            }
         }
     }
 
@@ -144,10 +159,12 @@ class PlaybackService : Service() {
                 PlaybackController.play()
             }
             if (started && PlaybackController.isPlaying.value) {
+                updateMetadata()
                 updateMediaState(PlaybackStateCompat.STATE_PLAYING)
                 notifyPlaying()
             } else if (started) {
                 // Paused by the user while packs were loading.
+                updateMetadata()
                 updateMediaState(PlaybackStateCompat.STATE_PAUSED)
                 notifyPaused()
             } else {
@@ -168,10 +185,11 @@ class PlaybackService : Service() {
         val settings = app.settings.settings.first()
         val selection = app.packs.listPacks()
             .filter { it.id in settings.selectedPackIds }
-            .map { PackSelection(it.id, it.directory) }
+            .map { PackSelection(it.id, it.name, it.directory) }
 
         PlaybackController.setPacks(selection)
         PlaybackController.setMasterGain(settings.masterVolume)
+        PlaybackController.setPackGains(settings.packGains)
         PlaybackController.setSleepTimer(settings.timerMinutes)
     }
 
@@ -260,9 +278,13 @@ class PlaybackService : Service() {
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(
-                getString(
-                    if (playing) R.string.notification_playing else R.string.notification_paused,
-                ),
+                if (playing) {
+                    PlaybackController.mixTitle.value.ifBlank {
+                        getString(R.string.notification_playing)
+                    }
+                } else {
+                    getString(R.string.notification_paused)
+                },
             )
             .setContentIntent(contentIntent)
             .setOngoing(playing)
@@ -289,6 +311,18 @@ class PlaybackService : Service() {
 
     private fun updateMediaState(state: Int) {
         mediaSession.setPlaybackState(playbackState(state))
+    }
+
+    private fun updateMetadata() {
+        val title = PlaybackController.mixTitle.value.ifBlank { getString(R.string.app_name) }
+        mediaSession.setMetadata(
+            MediaMetadataCompat.Builder()
+                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title)
+                .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, getString(R.string.app_name))
+                .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, "Sleep soundscape")
+                .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, -1L)
+                .build(),
+        )
     }
 
     private fun playbackState(state: Int): PlaybackStateCompat {

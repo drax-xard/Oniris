@@ -59,6 +59,9 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Bundle procedural packs
+        run: ./scripts/bundle-android-packs.sh
+
       - name: Assemble debug APK
         working-directory: android
         run: ./gradlew :app:assembleDebug --stacktrace

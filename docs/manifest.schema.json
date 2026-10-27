@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oniris.dev/schema/manifest-v1.json",
+  "title": "Oniris pack manifest",
+  "description": "Schema version 1 of manifest.json in an Oniris sound pack. Structural validation; the Rust loader additionally decodes every asset and enforces the decoded-memory budget.",
+  "type": "object",
+  "required": ["schemaVersion", "id", "name", "version", "license", "beds"],
+  "additionalProperties": true,
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$",
+      "description": "Lowercase ASCII letters, digits, and hyphens; must not start or end with a hyphen."
+    },
+    "name": {
+      "type": "object",
+      "description": "Localized display names keyed by BCP-47 language tag.",
+      "required": ["en"],
+      "additionalProperties": { "type": "string", "minLength": 1 },
+      "properties": {
+        "en": { "type": "string", "minLength": 1 }
+      }
+    },
+    "description": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Pack version, not the app version."
+    },
+    "license": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SPDX identifier or short license name."
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "loudnessLufs": {
+      "type": "number"
+    },
+    "truePeakDbtp": {
+      "type": "number"
+    },
+    "art": {
+      "$ref": "#/$defs/relativePath"
+    },
+    "beds": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "items": { "$ref": "#/$defs/bed" }
+    },
+    "events": {
+      "type": "array",
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/event" }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "excludes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "credits": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/credit" }
+    },
+    "procedural": {
+      "type": "boolean",
+      "description": "True when every audible asset is synthesized."
+    }
+  },
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*(?:^|/)(?:\\.|$)).+$",
+      "description": "Safe relative path using forward slashes, without '.' or '..' segments."
+    },
+    "bed": {
+      "type": "object",
+      "required": ["id", "file", "loop"],
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "file": { "$ref": "#/$defs/relativePath" },
+        "loop": {
+          "type": "object",
+          "required": ["startSample", "endSample"],
+          "additionalProperties": false,
+          "properties": {
+            "startSample": { "type": "integer", "minimum": 0 },
+            "endSample": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "gainDb": { "type": "number", "minimum": -60, "maximum": 6, "default": 0 },
+        "pan": { "type": "number", "minimum": -1, "maximum": 1, "default": 0 },
+        "lfo": {
+          "type": "object",
+          "required": ["target", "periodSec"],
+          "additionalProperties": true,
+          "properties": {
+            "target": { "enum": ["gain", "pan"] },
+            "depth": { "type": "number", "minimum": 0 },
+            "periodSec": { "type": "number", "minimum": 5, "maximum": 600 }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "target": { "const": "gain" } } },
+              "then": { "properties": { "depth": { "maximum": 6 } } },
+              "else": { "properties": { "depth": { "maximum": 1 } } }
+            }
+          ]
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "required": ["id", "files"],
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/relativePath" }
+        },
+        "minIntervalSec": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 3600,
+          "default": 20
+        },
+        "maxIntervalSec": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 3600,
+          "default": 60
+        },
+        "initialDelaySec": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3600
+        },
+        "gainDb": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "type": "number", "minimum": -60, "maximum": 6 },
+          "default": [-8, -3]
+        },
+        "pan": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "type": "number", "minimum": -1, "maximum": 1 },
+          "default": [0, 0]
+        },
+        "fadeInMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000,
+          "default": 500
+        },
+        "fadeOutMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000,
+          "default": 1000
+        },
+        "maxVoices": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4,
+          "default": 1
+        }
+      }
+    },
+    "credit": {
+      "type": "object",
+      "required": ["title", "author", "license"],
+      "additionalProperties": true,
+      "properties": {
+        "asset": { "$ref": "#/$defs/relativePath" },
+        "title": { "type": "string", "minLength": 1 },
+        "author": { "type": "string", "minLength": 1 },
+        "source": { "type": "string" },
+        "license": { "type": "string", "minLength": 1 },
+        "modified": { "type": "boolean", "default": false }
+      }
+    }
+  }
+}

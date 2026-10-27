@@ -12,7 +12,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
-data class PackSelection(val id: String, val dir: File)
+data class PackSelection(val id: String, val name: String, val dir: File)
 
 /**
  * Process-wide playback control. The UI and the media service share this
@@ -31,11 +31,16 @@ object PlaybackController {
 
     private var selections: List<PackSelection> = emptyList()
     private var loadedSelections: List<PackSelection> = emptyList()
+    private val loadedPackIds = mutableSetOf<String>()
     private var masterGain: Float = 0.8f
+    private var packGains: Map<String, Float> = emptyMap()
     private var timerMinutes: Int = 0
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
+
+    private val _mixTitle = MutableStateFlow("")
+    val mixTitle: StateFlow<String> = _mixTitle.asStateFlow()
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
@@ -48,64 +53,43 @@ object PlaybackController {
             if (engine != null) return
             appContext = context.applicationContext
             engine = NativeEngine()
+            loadedPackIds.clear()
         }
     }
 
     fun setPacks(value: List<PackSelection>) {
         synchronized(lock) {
             selections = value
+            _mixTitle.value = titleFor(value)
+            if (_isPlaying.value) {
+                engine?.let(::applyMix)
+            }
         }
     }
 
     val hasSelection: Boolean
         get() = synchronized(lock) { selections.isNotEmpty() }
 
+    private fun titleFor(value: List<PackSelection>): String {
+        val names = value.map { it.name }
+        return when {
+            names.isEmpty() -> ""
+            names.size <= 2 -> names.joinToString(" + ")
+            else -> names.take(2).joinToString(" + ") + " +${names.size - 2}"
+        }
+    }
+
     fun play(): Boolean = synchronized(lock) {
         val context = appContext ?: return fail("Playback is not initialized")
-        var current = engine ?: return fail("Native engine is not initialized")
+        val current = engine ?: return fail("Native engine is not initialized")
         if (!current.available) return fail("Native engine is not built for this device")
         if (selections.isEmpty()) return fail("Add at least one sound pack first")
         if (_isPlaying.value) return true
-
-        if (loadedSelections != selections) {
-            if (!stopRenderThread()) {
-                return fail("Audio is still stopping; try again in a moment")
-            }
-            current.stop()
-            current.close()
-            current = NativeEngine()
-            engine = current
-            if (!current.available) return fail("Native engine is not built for this device")
-
-            for (selection in selections) {
-                if (!current.loadPack(selection.dir.absolutePath)) {
-                    return fail("Could not load ${selection.id}")
-                }
-            }
-
-            val json = JSONObject().apply {
-                put("masterGain", 1.0)
-                put(
-                    "packs",
-                    JSONArray().apply {
-                        selections.forEach { selection ->
-                            put(
-                                JSONObject()
-                                    .put("id", selection.id)
-                                    .put("gainDb", 0.0)
-                                    .put("muted", false),
-                            )
-                        }
-                    },
-                )
-            }.toString()
-
-            if (!current.setMix(json)) {
-                current.stop()
-                return fail("Could not apply the mix")
-            }
-            loadedSelections = selections
+        if (!stopRenderThread()) {
+            return fail("Audio is still stopping; try again in a moment")
         }
+
+        if (!applyMix(current)) return false
 
         current.play()
         current.setMasterGain(masterGain)
@@ -122,6 +106,46 @@ object PlaybackController {
         thread.start()
         _message.value = null
         true
+    }
+
+    /**
+     * Load any newly selected packs and crossfade to the current selection.
+     * The engine keeps removed packs decoded so a later re-add is instant.
+     */
+    private fun applyMix(current: NativeEngine): Boolean {
+        for (selection in selections) {
+            if (selection.id in loadedPackIds) continue
+            if (!current.loadPack(selection.dir.absolutePath)) {
+                return fail("Could not load ${selection.name}")
+            }
+            loadedPackIds += selection.id
+        }
+
+        val json = JSONObject().apply {
+            put("masterGain", 1.0)
+            put(
+                "packs",
+                JSONArray().apply {
+                    selections.forEach { selection ->
+                        put(
+                            JSONObject()
+                                .put("id", selection.id)
+                                .put("gainDb", volumeToGainDb(packGains[selection.id] ?: 1f))
+                                .put("muted", false),
+                        )
+                    }
+                },
+            )
+        }.toString()
+
+        if (!current.setMix(json)) {
+            return fail("Could not apply the mix")
+        }
+        for (selection in selections) {
+            current.setPackGain(selection.id, packGains[selection.id] ?: 1f)
+        }
+        loadedSelections = selections
+        return true
     }
 
     /** Stop immediately; the UI restarts playback from silence. */
@@ -152,9 +176,21 @@ object PlaybackController {
         }
     }
 
-    fun setPackGainDb(id: String, gainDb: Float) {
+    fun setPackGain(id: String, volume: Float) {
         synchronized(lock) {
-            engine?.setPackGainDb(id, gainDb)
+            packGains = packGains + (id to volume.coerceIn(0f, 1f))
+            if (loadedSelections.any { it.id == id }) {
+                engine?.setPackGain(id, packGains.getValue(id))
+            }
+        }
+    }
+
+    fun setPackGains(values: Map<String, Float>) {
+        synchronized(lock) {
+            packGains = values.mapValues { (_, volume) -> volume.coerceIn(0f, 1f) }
+            for (selection in loadedSelections) {
+                engine?.setPackGain(selection.id, packGains[selection.id] ?: 1f)
+            }
         }
     }
 
@@ -186,6 +222,13 @@ object PlaybackController {
         } else {
             engine.clearSleepTimer()
         }
+    }
+
+    /** Mix JSON is expressed in dB; zero volume maps to the floor, then the
+     *  exact linear gain (including mute) is applied through setPackGain. */
+    private fun volumeToGainDb(volume: Float): Double {
+        val value = volume.coerceIn(0f, 1f)
+        return if (value <= 0.0001f) -60.0 else 20.0 * kotlin.math.log10(value.toDouble())
     }
 
     /**

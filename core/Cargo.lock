@@ -446,6 +446,7 @@ version = "0.1.0"
 dependencies = [
  "jni",
  "oniris-core",
+ "oniris-pack",
  "serde_json",
 ]
 

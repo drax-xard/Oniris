@@ -4,17 +4,18 @@ Oniris is a battery-first Android sleep-soundscape app. It mixes seamless ambien
 
 The audio engine is written in Rust so the same sound model can run on Android today and on desktop, Raspberry Pi, or the web later.
 
-**Status:** early scaffold, with the production audio format, pack distribution, and a procedural synthesis path working end to end. The Rust core, pack format, deterministic `.onirispack` archives, attribution credits, procedural packs (Pure Noise, Rainy Night, Deep Space Cabin, Enchanted Forest), CLI, Android shell, and Ogg/Opus decode/encode are in place, and the Android debug APK builds with JDK 21 + SDK 36. Field-recorded sound packs, Android pack import UI, and on-device/battery validation are next.
+**Status:** v1.0 feature set is nearly complete. The Rust core, pack format, deterministic `.onirispack` archives, attribution credits, four CC0 procedural packs (Pure Noise, Rainy Night, Deep Space Cabin, Enchanted Forest), CLI, Android shell, Ogg/Opus decode/encode, Android pack import, per-pack volume, presets, live mix crossfades, lock-screen metadata, and bundled-pack build step are in place, and the Android debug and release APKs build with JDK 21 + SDK 36. Field-recorded sound packs, pack previews/downloads, real-device listening/battery QA, OEM soak testing, code signing, and the Media3 adapter remain.
 
 ## What works today
 
-- Rust core: manifest validation, Ogg/Opus and WAV decode/resample, seamless bed loops, randomized event voices, live mix crossfades, LFOs, fades, sleep timer, lookahead limiter.
+- Rust core: manifest validation, Ogg/Opus and WAV decode/resample, seamless bed loops, randomized event voices, live mix crossfades, click-free per-pack gain ramps, LFOs, fades, sleep timer, lookahead limiter.
 - `oniris` CLI: generate synthetic Opus/WAV test packs, generate procedural packs, encode Opus, validate, print credits, render, analyze, measure loudness/true peak, normalize, and package/verify/unpack `.onirispack` archives.
 - `oniris analyze`: peak, RMS, maximum sample-to-sample delta, and large-jump counts for render QA.
-- Android app: pack library, multi-pack selection, master volume, procedural-only library mode, sleep timer, foreground media notification, audio focus, wake lock, persisted settings.
+- Android app: pack library, `.onirispack` import through the system document picker, multi-pack selection (up to 4) with per-pack volume, master volume, procedural-only library mode, built-in and user-saved presets, sleep timer, live mix changes without rebuilding the engine, foreground media notification with the active mix name, audio focus, wake lock, persisted settings.
 - Native library builds for `arm64-v8a`, `armeabi-v7a`, and `x86_64`; debug and release APKs assemble.
+- `make android` generates four procedural packs and bundles them into the APK, so a fresh install has content without network access.
 
-Smoke-tested on an Android 36 x86_64 emulator: pack discovery, play/pause, media-session state, foreground notification, and wake-lock acquire/release all work. Opus decode and golden render tests (level, brightness, loop seams, determinism) are covered by the Rust suite; on-device audio and battery soak tests are still pending. The codec is pure Rust (`opus-pure`), so Android builds need no extra native library.
+Smoke-tested on an Android 36 x86_64 emulator: pack discovery, play/pause, media-session state, foreground notification, and wake-lock acquire/release all work. Opus decode, per-pack gain ramps, archive import, and golden render tests (level, brightness, loop seams, determinism) are covered by the Rust suite; on-device audio, live-mix listening, and battery soak tests are still pending. The codec is pure Rust (`opus-pure`), so Android builds need no extra native library.
 
 ## Why this architecture
 
@@ -103,24 +104,26 @@ Prerequisites: JDK 17 or 21, Android SDK 36, Rust, `cargo-ndk`, and the Android 
 rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 cargo install cargo-ndk
 
-cd core
-cargo ndk \
-  -t arm64-v8a -t armeabi-v7a -t x86_64 \
-  -o ../android/app/src/main/jniLibs \
-  build -p oniris-jni --release
-
-cd ..
-cd android
-./gradlew :app:assembleDebug
+# Builds jniLibs, generates/bundles the procedural packs, and assembles the APK.
+make android
 ```
 
-The app starts gracefully if `liboniris_jni.so` is missing, but playback requires the native library. See [docs/BUILD.md](docs/BUILD.md).
+Or run the steps separately:
+
+```bash
+make android-native   # native library into android/app/src/main/jniLibs
+make android-packs    # procedural packs into android/app/src/main/assets/packs
+cd android && ./gradlew :app:assembleDebug
+```
+
+The app starts gracefully if `liboniris_jni.so` is missing, but playback requires the native library. The native library is also required for `.onirispack` import: the importer reuses the Rust archive extractor and validates every asset before installing it. See [docs/BUILD.md](docs/BUILD.md).
 
 ## Documentation
 
 - [Development plan](docs/DEVELOPMENT_PLAN.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Pack format](docs/PACK_FORMAT.md)
+- [Manifest JSON Schema](docs/manifest.schema.json)
 - [Build notes](docs/BUILD.md)
 - [Content licensing](docs/LICENSING.md)
 

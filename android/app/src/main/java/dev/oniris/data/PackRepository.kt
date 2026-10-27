@@ -1,11 +1,14 @@
 package dev.oniris.data
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
+import java.util.UUID
 
 /** A pack that passed the minimal on-device manifest checks. */
 data class PackInfo(
@@ -40,12 +43,51 @@ data class Credit(
  * render the library.
  */
 class PackRepository(context: Context) {
-    private val packsDir = File(context.filesDir, "packs")
-    private val assets = context.assets
+    private val appContext = context.applicationContext
+    private val packsDir = File(appContext.filesDir, "packs")
+    private val assets = appContext.assets
 
     suspend fun listPacks(): List<PackInfo> = withContext(Dispatchers.IO) {
         installBundledPacks()
         scan()
+    }
+
+    /**
+     * Import an `.onirispack` chosen through the system document picker.
+     *
+     * The archive is copied into the cache first (the Rust extractor needs a
+     * filesystem path), then validated and installed by [NativePack]. A failed
+     * import leaves the existing library untouched.
+     */
+    suspend fun importArchive(uri: Uri): PackInfo = withContext(Dispatchers.IO) {
+        val archive = File(appContext.cacheDir, "import-${UUID.randomUUID()}.onirispack")
+        try {
+            copyToCache(uri, archive)
+            val id = NativePack.installArchive(archive.absolutePath, packsDir.absolutePath)
+                ?: throw IOException("The native pack importer is not available on this device")
+            readPack(File(packsDir, id))
+                ?: throw IOException("The imported pack could not be read")
+        } finally {
+            archive.delete()
+        }
+    }
+
+    private fun copyToCache(uri: Uri, destination: File) {
+        appContext.contentResolver.openInputStream(uri)?.use { source ->
+            destination.outputStream().use { target ->
+                val buffer = ByteArray(COPY_BUFFER_BYTES)
+                var total = 0L
+                while (true) {
+                    val read = source.read(buffer)
+                    if (read < 0) break
+                    total += read
+                    if (total > MAX_ARCHIVE_BYTES) {
+                        throw IOException("The selected pack is larger than the import limit")
+                    }
+                    target.write(buffer, 0, read)
+                }
+            }
+        } ?: throw IOException("Could not open the selected file")
     }
 
     private fun installBundledPacks() {
@@ -147,5 +189,7 @@ class PackRepository(context: Context) {
     companion object {
         private const val TAG = "Oniris"
         private const val BUNDLED_ROOT = "packs"
+        private const val COPY_BUFFER_BYTES = 64 * 1024
+        private const val MAX_ARCHIVE_BYTES = 1024L * 1024 * 1024
     }
 }

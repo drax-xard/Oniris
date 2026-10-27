@@ -111,7 +111,13 @@ budget before starting.
 - **Becoming noisy:** pause when headphones disconnect (default).
 - **Wake lock:** a partial wake lock only while playing; verify on real devices
   whether the audio HAL already holds one.
-- **Notification:** play/pause/stop; update on state changes only.
+- **Notification:** play/pause/stop with the active mix name; update on state
+  changes only.
+- **Live mix:** selecting or deselecting packs while playing loads newly added
+  packs and calls `set_mix`, so common packs keep their position and the change
+  crossfades. Removed packs stay decoded for a fast re-add.
+- **Import:** the system document picker copies the archive to cache, then JNI
+  installs it through the same Rust archive module used by the CLI.
 
 ## Portability
 
@@ -170,10 +176,7 @@ module through JNI so there is one set of security rules.
 ## Known scaffold gaps
 
 - Media3 `SimpleBasePlayer` adapter (using `MediaSessionCompat`).
-- Android live-mix control path (the engine already crossfades `set_mix` changes;
-  the app still rebuilds the engine when pack selection changes).
-- Android download manager and pack import UI (the archive format and Rust
-  extraction path are implemented).
+- Downloadable-pack browser/updater (import and bundled packs are implemented).
 - Real content sourcing, listening QA, and final loudness decisions (measurement
   and gain tools are in the CLI).
 - Real-device battery, underrun, and thermal soak testing.

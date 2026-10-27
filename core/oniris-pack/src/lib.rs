@@ -13,8 +13,8 @@ use thiserror::Error;
 pub mod archive;
 
 pub use archive::{
-    archive_path_for, pack_dir, sha256_file, unpack_archive, verify_archive, ArchiveInfo,
-    ARCHIVE_EXTENSION,
+    archive_path_for, install_archive, pack_dir, sha256_file, unpack_archive, verify_archive,
+    ArchiveInfo, InstalledPack, ARCHIVE_EXTENSION,
 };
 
 pub const SCHEMA_VERSION: u32 = 1;

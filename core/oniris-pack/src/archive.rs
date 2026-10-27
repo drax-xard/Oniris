@@ -43,6 +43,14 @@ pub struct ArchiveInfo {
     pub files: usize,
 }
 
+/// A pack that was extracted into an install directory.
+#[derive(Debug, Clone)]
+pub struct InstalledPack {
+    pub info: ArchiveInfo,
+    /// Directory named after the manifest id, inside the packs directory.
+    pub directory: PathBuf,
+}
+
 /// Package a validated pack directory as a deterministic `.onirispack`.
 pub fn pack_dir(dir: &Path, output: &Path) -> Result<ArchiveInfo, PackError> {
     let manifest = Manifest::load(dir)?;
@@ -169,6 +177,36 @@ pub fn unpack_archive(archive: &Path, dest: &Path) -> Result<ArchiveInfo, PackEr
     }
 
     archive_info(archive, manifest, files)
+}
+
+/// Validate and install an archive as `packs_dir/<manifest-id>`.
+///
+/// Extraction happens in a temporary directory inside `packs_dir`; the pack is
+/// renamed into place only after the archive validates. An existing pack with
+/// the same id is never overwritten.
+pub fn install_archive(archive: &Path, packs_dir: &Path) -> Result<InstalledPack, PackError> {
+    fs::create_dir_all(packs_dir)?;
+
+    // The temp directory keeps a failed or concurrent install out of the
+    // library scan; directories without a manifest are ignored by callers.
+    let temp = TempDir::new_in(packs_dir)?;
+    let staging = temp.path().join("staging");
+    let info = unpack_archive(archive, &staging)?;
+
+    let destination = packs_dir.join(&info.manifest.id);
+    if destination.exists() {
+        return Err(PackError::Validation(format!(
+            "pack {:?} is already installed at {}",
+            info.manifest.id,
+            destination.display()
+        )));
+    }
+
+    fs::rename(&staging, &destination)?;
+    Ok(InstalledPack {
+        info,
+        directory: destination,
+    })
 }
 
 /// Lowercase hex SHA-256 of a file's bytes.
@@ -631,5 +669,62 @@ mod tests {
         std::fs::create_dir(&dest).unwrap();
         unpack_archive(&archive, &dest).unwrap();
         assert!(dest.join("audio/rain.opus").is_file());
+    }
+
+    #[test]
+    fn install_archive_publishes_the_pack_by_id() {
+        let source = tempfile::tempdir().unwrap();
+        make_pack(source.path());
+        let output = tempfile::tempdir().unwrap();
+        let archive = output.path().join("test-rain.onirispack");
+        pack_dir(source.path(), &archive).unwrap();
+
+        let packs_dir = output.path().join("packs");
+        let installed = install_archive(&archive, &packs_dir).unwrap();
+
+        assert_eq!(installed.info.manifest.id, "test-rain");
+        assert_eq!(installed.directory, packs_dir.join("test-rain"));
+        assert!(installed.directory.join("audio/rain.opus").is_file());
+        assert_eq!(
+            std::fs::read_dir(&packs_dir).unwrap().count(),
+            1,
+            "the staging directory must not be left behind"
+        );
+    }
+
+    #[test]
+    fn install_archive_refuses_to_overwrite_an_existing_pack() {
+        let source = tempfile::tempdir().unwrap();
+        make_pack(source.path());
+        let output = tempfile::tempdir().unwrap();
+        let archive = output.path().join("test-rain.onirispack");
+        pack_dir(source.path(), &archive).unwrap();
+
+        let packs_dir = output.path().join("packs");
+        install_archive(&archive, &packs_dir).unwrap();
+        let existing = packs_dir.join("test-rain").join("manifest.json");
+        let before = std::fs::read(&existing).unwrap();
+
+        let error = install_archive(&archive, &packs_dir).unwrap_err();
+        assert!(error.to_string().contains("already installed"));
+        assert_eq!(std::fs::read(&existing).unwrap(), before);
+    }
+
+    #[test]
+    fn install_archive_leaves_the_library_untouched_on_failure() {
+        let output = tempfile::tempdir().unwrap();
+        let archive = output.path().join("broken.onirispack");
+        write_zip(&archive, &[("manifest.json", b"not json")]);
+
+        let packs_dir = output.path().join("packs");
+        assert!(install_archive(&archive, &packs_dir).is_err());
+        assert!(!packs_dir.join("test-rain").exists());
+        assert_eq!(
+            std::fs::read_dir(&packs_dir)
+                .map(|entries| entries.count())
+                .unwrap_or(0),
+            0,
+            "a failed install must not leave staging directories around"
+        );
     }
 }

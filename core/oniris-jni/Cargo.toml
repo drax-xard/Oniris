@@ -10,4 +10,5 @@ crate-type = ["cdylib", "staticlib"]
 [dependencies]
 jni.workspace = true
 oniris-core = { path = "../oniris-core" }
+oniris-pack = { path = "../oniris-pack" }
 serde_json.workspace = true

@@ -102,12 +102,12 @@ desktop workflow builds it on macOS and Ubuntu.
 | Pack library / selection | yes | yes | — |
 | Multi-pack mix | yes | yes | — |
 | Master volume | yes | yes | — |
-| Per-pack volume | engine only | no | D2 |
+| Per-pack volume | engine + UI | no | D2 |
 | Sleep timer | yes | yes | — |
 | Procedural-only filter | yes | yes | — |
 | Credits / licenses | yes | yes | — |
-| `.onirispack` import | no | no | D2 |
-| Presets | no | no | D2 |
+| `.onirispack` import | yes (SAF picker) | no | D2 |
+| Presets | built-in + saved | no | D2 |
 | Background playback | foreground service | stop on close | D3 tray |
 | Media controls | MediaSession | no | D3 MPRIS/Now Playing |
 | Bundled packs | assets | resources | — |

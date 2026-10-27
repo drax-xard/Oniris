@@ -133,10 +133,59 @@ impl Fade {
     }
 }
 
+/// A linear gain that can ramp between values without a click. Gain is not
+/// limited to 0..1 because mix entries may boost a pack.
+#[derive(Debug, Clone, Copy)]
+struct GainRamp {
+    value: f32,
+    target: f32,
+    step: f32,
+    remaining: u32,
+}
+
+impl GainRamp {
+    fn new(value: f32) -> Self {
+        Self {
+            value,
+            target: value,
+            step: 0.0,
+            remaining: 0,
+        }
+    }
+
+    fn start(&mut self, target: f32, frames: u32) {
+        self.target = target;
+        if frames == 0 || (target - self.value).abs() < f32::EPSILON {
+            self.value = target;
+            self.step = 0.0;
+            self.remaining = 0;
+        } else {
+            self.step = (target - self.value) / frames as f32;
+            self.remaining = frames;
+        }
+    }
+
+    fn at(&self, frame: usize) -> f32 {
+        (self.value + self.step * frame as f32).clamp(0.0, 2.0)
+    }
+
+    fn advance(&mut self, frames: u32) {
+        if self.remaining == 0 {
+            return;
+        }
+        let step = frames.min(self.remaining);
+        self.value += self.step * step as f32;
+        self.remaining -= step;
+        if self.remaining == 0 {
+            self.value = self.target;
+        }
+    }
+}
+
 #[derive(Debug)]
 struct ActivePack {
     pack: Arc<LoadedPack>,
-    gain: f32,
+    gain: GainRamp,
     bed_positions: Vec<usize>,
     bed_lfo_phases: Vec<f32>,
     event_delays: Vec<u64>,
@@ -150,7 +199,7 @@ struct EventVoice {
     audio: Arc<DecodedAudio>,
     position: usize,
     gain: f32,
-    pack_gain: f32,
+    pack_gain: GainRamp,
     pack_fade: Fade,
     pan_l: f32,
     pan_r: f32,
@@ -175,6 +224,7 @@ pub struct Engine {
     fade_in_frames: u32,
     pause_fade_frames: u32,
     crossfade_frames: u32,
+    pack_gain_ramp_frames: u32,
     timer_active: bool,
     timer_remaining: u64,
     timer_fade_frames: u64,
@@ -207,6 +257,7 @@ impl Engine {
             fade_in_frames: sample_rate * 10,
             pause_fade_frames: sample_rate / 5,
             crossfade_frames: sample_rate * 2,
+            pack_gain_ramp_frames: sample_rate / 20,
             timer_active: false,
             timer_remaining: 0,
             timer_fade_frames: 0,
@@ -414,7 +465,7 @@ impl Engine {
                 .cloned()
                 .ok_or_else(|| EngineError::PackNotLoaded(entry.id.clone()))?;
             if !entry.muted {
-                requested.push((pack, db_to_linear(entry.gain_db)));
+                requested.push((pack, db_to_linear(entry.gain_db).clamp(0.0, 2.0)));
             }
         }
 
@@ -432,8 +483,8 @@ impl Engine {
             {
                 // Keep the bed position, LFO phase, and event schedule.
                 let mut active = old_active.swap_remove(index);
-                if (active.gain - gain).abs() > f32::EPSILON {
-                    active.gain = gain;
+                if (active.gain.target - gain).abs() > f32::EPSILON {
+                    active.gain.start(gain, self.pack_gain_ramp_frames);
                     gain_changes.push((active.pack.clone(), gain));
                 }
                 new_active.push(active);
@@ -443,8 +494,8 @@ impl Engine {
             {
                 // Re-added while it was still fading out; turn it back around.
                 let mut active = old_fading.swap_remove(index);
-                if (active.gain - gain).abs() > f32::EPSILON {
-                    active.gain = gain;
+                if (active.gain.target - gain).abs() > f32::EPSILON {
+                    active.gain.start(gain, self.pack_gain_ramp_frames);
                     gain_changes.push((active.pack.clone(), gain));
                 }
                 if crossfade {
@@ -475,10 +526,11 @@ impl Engine {
         }
 
         // Existing event voices follow their pack's gain and fade.
+        let pack_gain_ramp_frames = self.pack_gain_ramp_frames;
         for (pack, gain) in &gain_changes {
             for voice in &mut self.voices {
                 if Arc::ptr_eq(&voice.pack, pack) {
-                    voice.pack_gain = *gain;
+                    voice.pack_gain.start(*gain, pack_gain_ramp_frames);
                 }
             }
         }
@@ -510,20 +562,20 @@ impl Engine {
         let mut found = false;
         for pack in &mut self.active {
             if pack.pack.manifest.id == id {
-                pack.gain = gain;
+                pack.gain.start(gain, self.pack_gain_ramp_frames);
                 found = true;
             }
         }
         for pack in &mut self.fading {
             if pack.pack.manifest.id == id {
-                pack.gain = gain;
+                pack.gain.start(gain, self.pack_gain_ramp_frames);
                 found = true;
             }
         }
         if found {
             for voice in &mut self.voices {
                 if voice.pack.manifest.id == id {
-                    voice.pack_gain = gain;
+                    voice.pack_gain.start(gain, self.pack_gain_ramp_frames);
                 }
             }
             Ok(())
@@ -712,8 +764,11 @@ impl Engine {
             for frame in 0..count {
                 let position = voice.position + frame;
                 let envelope = fade_envelope(position, voice.total, voice.fade_in, voice.fade_out);
-                let gain =
-                    voice.gain * voice.pack_gain * voice.pack_fade.at(frame) * envelope * I16_SCALE;
+                let gain = voice.gain
+                    * voice.pack_gain.at(frame)
+                    * voice.pack_fade.at(frame)
+                    * envelope
+                    * I16_SCALE;
                 let base = position * channels;
 
                 if channels == 1 {
@@ -727,6 +782,7 @@ impl Engine {
                 }
             }
             voice.pack_fade.advance(count as u32);
+            voice.pack_gain.advance(count as u32);
 
             voice.position += count;
             if voice.position >= voice.total {
@@ -872,7 +928,7 @@ fn build_active_pack(
 
     ActivePack {
         pack,
-        gain,
+        gain: GainRamp::new(gain),
         bed_positions,
         bed_lfo_phases,
         event_delays,
@@ -883,17 +939,21 @@ fn build_active_pack(
 fn render_beds(active: &mut ActivePack, scratch: &mut [f32], frames: usize) {
     let fade_start = active.fade.value;
     let fade_step = active.fade.step;
+    let gain_start = active.gain.value;
+    let gain_step = active.gain.step;
 
     for (index, bed) in active.pack.beds.iter().enumerate() {
         let position = &mut active.bed_positions[index];
         let phase = &mut active.bed_lfo_phases[index];
-        let base_gain = active.gain * bed.gain;
+        let bed_gain = bed.gain;
         let (base_l, base_r) = pan_gains(bed.pan);
 
         match bed.lfo {
             None => {
                 for frame in 0..frames {
                     let fade = (fade_start + fade_step * frame as f32).clamp(0.0, 1.0);
+                    let pack_gain = (gain_start + gain_step * frame as f32).clamp(0.0, 2.0);
+                    let base_gain = pack_gain * bed_gain;
                     let left_gain = base_gain * base_l * fade * I16_SCALE;
                     let right_gain = base_gain * base_r * fade * I16_SCALE;
                     let sample = *position * 2;
@@ -909,6 +969,8 @@ fn render_beds(active: &mut ActivePack, scratch: &mut [f32], frames: usize) {
             Some(lfo) => {
                 for frame in 0..frames {
                     let fade = (fade_start + fade_step * frame as f32).clamp(0.0, 1.0);
+                    let pack_gain = (gain_start + gain_step * frame as f32).clamp(0.0, 2.0);
+                    let base_gain = pack_gain * bed_gain;
                     let modulation = (*phase).sin() * lfo.depth;
                     let (left_gain, right_gain) = match lfo.target {
                         LfoTarget::Gain => {
@@ -946,6 +1008,7 @@ fn render_beds(active: &mut ActivePack, scratch: &mut [f32], frames: usize) {
     }
 
     active.fade.advance(frames as u32);
+    active.gain.advance(frames as u32);
 }
 
 fn seconds_to_frames_f64(seconds: f64, sample_rate: u32) -> u64 {
@@ -1406,7 +1469,11 @@ mod tests {
         engine.play();
         engine.set_pack_gain(&id, 0.0).unwrap();
 
+        // Gain changes ramp over 50 ms to avoid clicks; let the ramp finish
+        // before checking that the pack is silent.
         let mut out = vec![0i16; 24_000 * 2];
+        engine.render_i16(&mut out, 4_800);
+        out[..4_800 * 2].fill(0);
         engine.render_i16(&mut out, 24_000);
         assert!(
             out.iter().all(|sample| *sample == 0),
@@ -1421,6 +1488,48 @@ mod tests {
             .max()
             .unwrap();
         assert!(peak > 1_000, "event did not become audible: peak {peak}");
+    }
+
+    #[test]
+    fn pack_gain_changes_ramp_without_a_click() {
+        let dir = tempfile::tempdir().unwrap();
+        make_tone_pack(dir.path(), "tone-pack", 100.0, 0.5);
+
+        let mut engine = Engine::new(48_000);
+        engine.set_fade_in(Duration::ZERO);
+        let id = engine.load_pack(dir.path()).unwrap();
+        engine
+            .set_mix(&MixSpec::new(vec![MixEntry {
+                id: id.clone(),
+                gain_db: 0.0,
+                muted: false,
+            }]))
+            .unwrap();
+        engine.play();
+
+        let mut settled = vec![0i16; 4_800 * 2];
+        engine.render_i16(&mut settled, 4_800);
+
+        engine.set_pack_gain(&id, 0.0).unwrap();
+        let frames = 2_880; // 50 ms ramp plus the limiter's 5 ms lookahead
+        let mut out = vec![0i16; frames * 2];
+        engine.render_i16(&mut out, frames);
+
+        assert!(
+            out[600].abs() > 5_000,
+            "the gain ramp should start from the previous level: {}",
+            out[600]
+        );
+        assert!(
+            out[frames * 2 - 2].abs() < 100,
+            "the gain ramp should reach mute: {}",
+            out[frames * 2 - 2]
+        );
+        assert!(
+            max_sample_delta(&out, 2) < 1_000,
+            "gain ramp introduced a discontinuity: {}",
+            max_sample_delta(&out, 2)
+        );
     }
 
     #[test]

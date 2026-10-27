@@ -103,9 +103,19 @@ state.
 
 ## Android app
 
+The simplest path builds the native library, generates/bundles the procedural
+packs into `assets/packs`, and assembles the debug APK:
+
 ```bash
-cd android
-./gradlew :app:assembleDebug
+make android
+```
+
+Or run the steps separately:
+
+```bash
+make android-native   # native library into android/app/src/main/jniLibs
+make android-packs    # procedural packs into android/app/src/main/assets/packs
+cd android && ./gradlew :app:assembleDebug
 ```
 
 Install on a device:
@@ -133,16 +143,25 @@ sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
 
 ## Content
 
-Put development packs (Ogg/Opus or WAV) in
-`android/app/src/main/assets/packs/<id>/` to have the app copy them to internal
-storage on first launch, or push them with:
+`make android-packs` runs `scripts/bundle-android-packs.sh`, which generates the
+four procedural packs and copies them to
+`android/app/src/main/assets/packs/<id>/`. `PackRepository` copies them to the
+app's internal `files/packs` directory on first launch and skips packs that are
+already installed.
+
+To try an import without rebuilding, generate an archive and pick it from the
+app's **Import** button:
 
 ```bash
-adb push packs/test-rain /sdcard/Android/data/dev.oniris/files/packs/test-rain
+cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+  pack packs/enchanted-forest /tmp/enchanted-forest.onirispack
+adb push /tmp/enchanted-forest.onirispack /sdcard/Download/
 ```
 
-The scaffold's pack installer and import UI are intentionally minimal; see the
-roadmap.
+The importer validates the zip, decodes every asset, and publishes it under
+`filesDir/packs/<id>`. A failed or duplicate import leaves the existing library
+untouched. Packs pushed with `adb push .../files/packs/<id>` still work during
+development.
 
 ## Troubleshooting
 
