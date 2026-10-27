@@ -14,8 +14,8 @@ android {
         applicationId = "dev.oniris"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "1.0.0-beta3"
+        versionCode = 5
+        versionName = "1.0.0-beta4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
@@ -68,7 +68,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.datastore.preferences)
-    implementation(libs.androidx.media)
+    implementation(libs.androidx.media3.common)
+    implementation(libs.androidx.media3.session)
     implementation(libs.kotlinx.coroutines.android)
 
     implementation(platform(libs.androidx.compose.bom))

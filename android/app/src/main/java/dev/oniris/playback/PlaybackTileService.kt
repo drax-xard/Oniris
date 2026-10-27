@@ -32,9 +32,9 @@ class PlaybackTileService : TileService() {
     override fun onClick() {
         super.onClick()
         if (PlaybackController.isPlaying.value) {
-            PlaybackService.pause(this)
+            PlaybackSession.pause(this)
         } else {
-            PlaybackService.play(this)
+            PlaybackSession.play(this)
         }
         updateTile()
     }

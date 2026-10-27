@@ -12,11 +12,11 @@ click-free per-pack gain ramps and pause/resume fades, manifest attribution cred
 CC0 procedural packs (Pure Noise, Rainy Night, Deep Space Cabin, Enchanted
 Forest), a procedural-only library mode, Android `.onirispack` import, 30-second
 pack previews, per-pack volume, built-in/user presets, live mix changes,
-lock-screen metadata, a Quick Settings tile, and a bundled-pack build step are
-implemented and build. The debug APK runs on an Android 36 emulator: pack
-discovery, play/pause, media session, foreground notification, audio focus, and
-wake lock all work. Real field-recorded content, OEM testing, listening QA, and
-the 8-hour battery soak remain.
+lock-screen metadata, a Media3 `MediaSessionService`, a Quick Settings tile, and
+a bundled-pack build step are implemented and build. The debug APK runs on an
+Android 36 emulator: pack discovery, play/pause, media session, foreground
+notification, audio focus, and wake lock all work. Real field-recorded content,
+OEM testing, listening QA, and the 8-hour battery soak remain.
 
 **Local QA (Oct 2026):** a 60-minute rain+fire render completes in about 6 s with
 ~17 MB peak RSS on the development machine. `oniris-core/tests/golden.rs` covers
@@ -242,8 +242,8 @@ JNI surface stays small:
 
 ### 5.6 Android layer
 
-- **Service:** foreground service with `FOREGROUND_SERVICE_MEDIA_PLAYBACK` and service type `mediaPlayback`. The scaffold uses `MediaSessionCompat`; the production refactor moves to a Media3 `MediaSessionService` with a `SimpleBasePlayer` wrapper.
-- **Player:** a dedicated render thread drives the native engine; Media3 exposes play/pause, live duration, metadata, and custom commands for timer/gain once the adapter lands.
+- **Service:** `MediaSessionService` with `FOREGROUND_SERVICE_MEDIA_PLAYBACK` and service type `mediaPlayback`. A Media3 `SimpleBasePlayer` adapter wraps the Rust engine; Media3 owns the notification, lock-screen controls, media buttons, and foreground lifecycle.
+- **Player:** a dedicated render thread drives the native engine; Media3 exposes play/pause/stop, metadata, and the active mix name.
 - **Audio:** `AudioTrack` streaming, `ENCODING_PCM_16BIT`, 48 kHz stereo, `PERFORMANCE_MODE_POWER_SAVING` (API 26+), music stream, buffer 2×4096 frames, `WRITE_BLOCKING`.
 - **Thread:** dedicated render thread at `THREAD_PRIORITY_URGENT_AUDIO`; it owns the audio loop and `AudioTrack.write`.
 - **Focus:** `AudioFocusRequest` with `AUDIOFOCUS_GAIN`; duck to 20% on transient-can-duck; pause on loss; resume only if it was playing. Do not fight other media.
@@ -619,7 +619,7 @@ Still open:
 3. [x] Generate synthetic rain/fire beds and events; loop points and crossfades work.
 4. [x] Implement the mixer + scheduler; 60-minute listening QA is still pending.
 5. [x] Spike JNI + `AudioTrack` (emulator); real-device CPU/underrun measurement pending.
-6. [x] Spike a media session + foreground service; Media3 adapter is a later refactor.
+6. [x] Spike a media session + foreground service; replace the compatibility session with Media3 `MediaSessionService`/`SimpleBasePlayer`.
 7. [ ] Run a 1-hour battery baseline; extrapolate to 8 hours.
 8. [x] Build the Compose shell: library, mixer, timer, now playing.
 9. [x] Bundled-pack extraction and app-private storage.

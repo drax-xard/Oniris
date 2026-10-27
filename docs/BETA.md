@@ -1,4 +1,4 @@
-# Oniris 1.0.0-beta3 — tester guide
+# Oniris 1.0.0-beta4 — tester guide
 
 This is an internal, release-mode Android beta for real-device testing. It is
 not a Play Store build.
@@ -119,8 +119,6 @@ Then use **Import** in the app and choose the file from Downloads.
 
 - **Procedural content only.** Field-recorded launch packs are not included yet.
 - **No in-app download browser.** Pack import is manual; previews are included.
-- **MediaSessionCompat, not Media3.** Controls and metadata work, but the
-  planned Media3 adapter is not implemented.
 - **No timer remaining or pack art in the notification.**
 - **No on-device battery/thermal/underrun validation yet.** The design targets
   under 2% CPU and under 3%/h drain, but this build has not completed the
@@ -148,7 +146,7 @@ Please include:
 
 ## Build metadata
 
-- Version: `1.0.0-beta3` (`versionCode 4`)
+- Version: `1.0.0-beta4` (`versionCode 5`)
 - Package: `dev.oniris`
 - ABIs: `arm64-v8a`, `armeabi-v7a`, `x86_64`
 - Signed with the internal `Oniris Beta` test key.

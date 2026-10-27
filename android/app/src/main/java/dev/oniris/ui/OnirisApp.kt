@@ -56,7 +56,7 @@ import dev.oniris.data.SettingsStore
 import dev.oniris.playback.PackPreviewController
 import dev.oniris.playback.PackSelection
 import dev.oniris.playback.PlaybackController
-import dev.oniris.playback.PlaybackService
+import dev.oniris.playback.PlaybackSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -169,7 +169,7 @@ fun OnirisApp(
         if (wasPlaying && selection.isEmpty()) {
             PlaybackController.setPacks(selection)
             PlaybackController.stop()
-            PlaybackService.stop(context)
+            PlaybackSession.stop(context)
         } else if (wasPlaying) {
             withContext(Dispatchers.IO) {
                 PlaybackController.setPacks(selection)
@@ -471,9 +471,9 @@ fun OnirisApp(
                     onClick = {
                         PackPreviewController.stop()
                         if (isPlaying) {
-                            PlaybackService.pause(context)
+                            PlaybackSession.pause(context)
                         } else {
-                            PlaybackService.play(context)
+                            PlaybackSession.play(context)
                         }
                     },
                     modifier = Modifier

@@ -14,10 +14,10 @@
 └──────────────────────┬───────────────────────┘
                        │ StateFlow / intents
 ┌──────────────────────▼───────────────────────┐
-│ PlaybackService (foreground media service)    │
-│  ├─ MediaSessionCompat (notification/lock)   │
-│  ├─ Audio focus / becoming-noisy handling    │
-│  └─ AudioRenderThread ── AudioTrack          │
+│ PlaybackService (MediaSessionService)         │
+│  ├─ Media3 session + SimpleBasePlayer         │
+│  ├─ Audio focus / becoming-noisy handling     │
+│  └─ AudioRenderThread ── AudioTrack           │
 └──────────────────────┬───────────────────────┘
                        │ JNI, coarse calls only
 ┌──────────────────────▼───────────────────────┐
@@ -100,10 +100,9 @@ budget before starting.
 
 ## Android shell
 
-- **Service:** foreground service with `mediaPlayback` type and a
-  `MediaSessionCompat`. The scaffold uses the compatibility session because the
-  custom engine is not an ExoPlayer `Player`; a Media3 `SimpleBasePlayer` adapter
-  is a later refactor.
+- **Service:** `MediaSessionService` with a `Media3` session and
+  `SimpleBasePlayer` adapter over the Rust engine. Media3 owns the notification,
+  lock-screen controls, media buttons, and foreground lifecycle.
 - **Audio:** `AudioTrack` streaming, 48 kHz stereo, PCM 16-bit,
   `PERFORMANCE_MODE_POWER_SAVING` (API 26+).
 - **Audio focus:** pause on loss, duck on transient-can-duck, resume only if
@@ -111,8 +110,8 @@ budget before starting.
 - **Becoming noisy:** pause when headphones disconnect (default).
 - **Wake lock:** a partial wake lock only while playing; verify on real devices
   whether the audio HAL already holds one.
-- **Notification:** play/pause/stop with the active mix name; update on state
-  changes only.
+- **Notification:** Media3 media notification with play/pause/stop and the active
+  mix name; update on state changes only.
 - **Live mix:** selecting or deselecting packs while playing loads newly added
   packs and calls `set_mix`, so common packs keep their position and the change
   crossfades. Removed packs stay decoded for a fast re-add.
@@ -175,12 +174,11 @@ apply immediately.
 `oniris-pack::archive`. Entry names, types, sizes, and the manifest are checked
 before extraction; files are unpacked into a temporary directory and renamed
 into place only after the whole archive validates. The CLI exposes this as
-`pack`, `verify-pack`, and `unpack`. Android import should call the same Rust
+`pack`, `verify-pack`, and `unpack`. Android import calls the same Rust
 module through JNI so there is one set of security rules.
 
 ## Known scaffold gaps
 
-- Media3 `SimpleBasePlayer` adapter (using `MediaSessionCompat`).
 - Downloadable-pack browser/updater (import and bundled packs are implemented).
 - Real content sourcing, listening QA, and final loudness decisions (measurement
   and gain tools are in the CLI).
