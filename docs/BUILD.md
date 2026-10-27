@@ -124,6 +124,31 @@ Install on a device:
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
+## Beta APK
+
+For real-device testing, build a release-mode (R8, no debug overhead) beta APK:
+
+```bash
+export JAVA_HOME=/path/to/jdk-21
+export ANDROID_SDK_ROOT=/path/to/Android/Sdk
+export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/28.2.13676358"
+make beta
+```
+
+`make beta` rebuilds the native libraries and bundled packs, assembles the
+release APK, signs it with a beta key, verifies the signature, and writes:
+
+- `dist/oniris-beta.apk`
+- `dist/oniris-beta.apk.sha256`
+
+The signing key lives outside the repository at `~/.oniris-beta/oniris-beta.jks`
+(override with `ONIRIS_BETA_KEYDIR`); keep it to sign updates for the same
+install. This is an internal test key, not a Play Store release key.
+
+```bash
+adb install -r dist/oniris-beta.apk
+```
+
 The Gradle wrapper is committed. The first build downloads Gradle and the
 Android/Compose dependencies.
 

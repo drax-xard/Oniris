@@ -106,6 +106,9 @@ cargo install cargo-ndk
 
 # Builds jniLibs, generates/bundles the procedural packs, and assembles the APK.
 make android
+
+# Builds, signs, verifies, and writes dist/oniris-beta.apk for device testing.
+make beta
 ```
 
 Or run the steps separately:

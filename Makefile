@@ -1,7 +1,7 @@
 CARGO_MANIFEST := core/Cargo.toml
 CLI := cargo run --manifest-path $(CARGO_MANIFEST) -p oniris-cli --
 
-.PHONY: all test fmt fmt-check clippy packs packs-wav noise procedural pack render android-native android-packs android clean
+.PHONY: all test fmt fmt-check clippy packs packs-wav noise procedural pack render android-native android-packs android beta clean
 
 all: fmt-check clippy test
 
@@ -47,6 +47,9 @@ android-packs:
 
 android: android-native android-packs
 	cd android && ./gradlew :app:assembleDebug
+
+beta:
+	./scripts/build-beta-apk.sh
 
 clean:
 	cargo clean --manifest-path $(CARGO_MANIFEST)
