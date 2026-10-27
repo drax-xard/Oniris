@@ -149,6 +149,9 @@ install. This is an internal test key, not a Play Store release key.
 adb install -r dist/oniris-beta.apk
 ```
 
+See [`BETA.md`](BETA.md) for the tester install steps, use guide, test pass,
+and known limitations.
+
 The Gradle wrapper is committed. The first build downloads Gradle and the
 Android/Compose dependencies.
 

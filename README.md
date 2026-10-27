@@ -124,6 +124,7 @@ The app starts gracefully if `liboniris_jni.so` is missing, but playback require
 ## Documentation
 
 - [Development plan](docs/DEVELOPMENT_PLAN.md)
+- [Beta tester guide](docs/BETA.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Pack format](docs/PACK_FORMAT.md)
 - [Manifest JSON Schema](docs/manifest.schema.json)
