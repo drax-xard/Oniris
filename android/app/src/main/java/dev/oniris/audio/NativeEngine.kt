@@ -63,6 +63,11 @@ class NativeEngine(sampleRate: Int = 48_000) : AutoCloseable {
     }
 
     @Synchronized
+    fun setFadeIn(ms: Long) {
+        if (handle != 0L) nativeSetFadeIn(handle, ms)
+    }
+
+    @Synchronized
     fun clearSleepTimer() {
         if (handle != 0L) nativeClearSleepTimer(handle)
     }
@@ -96,6 +101,7 @@ class NativeEngine(sampleRate: Int = 48_000) : AutoCloseable {
     private external fun nativePause(handle: Long)
     private external fun nativeStop(handle: Long)
     private external fun nativeSetSleepTimer(handle: Long, durationMs: Long, fadeMs: Long)
+    private external fun nativeSetFadeIn(handle: Long, durationMs: Long)
     private external fun nativeClearSleepTimer(handle: Long)
     private external fun nativeRender(handle: Long, buffer: ByteBuffer, frames: Int): Int
     private external fun nativeIsFinished(handle: Long): Boolean

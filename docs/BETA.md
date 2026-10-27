@@ -1,4 +1,4 @@
-# Oniris 1.0.0-beta1 — tester guide
+# Oniris 1.0.0-beta2 — tester guide
 
 This is an internal, release-mode Android beta for real-device testing. It is
 not a Play Store build.
@@ -61,6 +61,8 @@ not a Play Store build.
   pack selection, per-pack volumes, master volume, and timer.
 - **Sound packs** — Toggle packs into the mix. The engine accepts up to four
   active packs. The switch changes the live mix; remaining packs crossfade.
+- **Preview** — Tap **Preview** on a pack card to hear a 30-second excerpt. A
+  preview uses a separate engine and is disabled while the main mix is playing.
 - **Per-pack volume** — Expand a selected pack row to set its level from 0 to
   100%. Changes are click-free and apply while playing.
 - **Master volume** — Overall output level.
@@ -70,6 +72,8 @@ not a Play Store build.
   beta; a fade-out pause is planned.
 - **Background playback** — Use the notification or lock-screen controls. The
   active mix name is shown as media metadata.
+- **Quick Settings tile** — Add Oniris from the Quick Settings tile editor, then
+  tap it to play or pause the last mix without opening the app.
 - **Headphone disconnect** — Playback pauses when headphones are unplugged.
 - **Import a pack** — Tap **Import**, choose an `.onirispack` file, and wait for
   the validation message. The archive is checked and decoded before it is added
@@ -96,8 +100,11 @@ Then use **Import** in the app and choose the file from Downloads.
 ## Suggested test pass
 
 - Play each built-in preset for at least 10 minutes.
+- Preview each pack; confirm it starts within a second, fades in, stops at 30
+  seconds, and stops when you press Play.
 - Lock the screen and verify notification/lock-screen play, pause, stop, and
   metadata.
+- Add the Oniris Quick Settings tile and verify it starts/pauses the last mix.
 - Change pack selection and per-pack volume during playback; listen for gaps,
   clicks, or level jumps.
 - Run a 15-minute sleep timer and confirm the final minute fades to silence.
@@ -110,7 +117,7 @@ Then use **Import** in the app and choose the file from Downloads.
 ## Known limitations
 
 - **Procedural content only.** Field-recorded launch packs are not included yet.
-- **No pack previews or in-app download browser.** Pack import is manual.
+- **No in-app download browser.** Pack import is manual; previews are included.
 - **MediaSessionCompat, not Media3.** Controls and metadata work, but the
   planned Media3 adapter is not implemented.
 - **Pause is immediate.** The sleep-timer fade is implemented; a short pause
@@ -142,7 +149,7 @@ Please include:
 
 ## Build metadata
 
-- Version: `1.0.0-beta1` (`versionCode 2`)
+- Version: `1.0.0-beta2` (`versionCode 3`)
 - Package: `dev.oniris`
 - ABIs: `arm64-v8a`, `armeabi-v7a`, `x86_64`
 - Signed with the internal `Oniris Beta` test key.

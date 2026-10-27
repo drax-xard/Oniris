@@ -118,6 +118,11 @@ budget before starting.
   crossfades. Removed packs stay decoded for a fast re-add.
 - **Import:** the system document picker copies the archive to cache, then JNI
   installs it through the same Rust archive module used by the CLI.
+- **Preview:** a separate short-lived engine plays a 30-second excerpt so the
+  main mix is not disturbed. Previews are only allowed while the main mix is
+  paused.
+- **Quick Settings:** `PlaybackTileService` toggles the last mix through the
+  same `PlaybackService` actions used by the notification.
 
 ## Portability
 

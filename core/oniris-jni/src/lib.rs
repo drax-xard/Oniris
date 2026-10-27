@@ -201,6 +201,18 @@ pub extern "system" fn Java_dev_oniris_audio_NativeEngine_nativeSetSleepTimer(
 }
 
 #[no_mangle]
+pub extern "system" fn Java_dev_oniris_audio_NativeEngine_nativeSetFadeIn(
+    _env: JNIEnv,
+    _this: JObject,
+    handle: jlong,
+    duration_ms: jlong,
+) {
+    if let Some(engine) = engine_mut(handle) {
+        engine.set_fade_in(Duration::from_millis(duration_ms.max(0) as u64));
+    }
+}
+
+#[no_mangle]
 pub extern "system" fn Java_dev_oniris_audio_NativeEngine_nativeClearSleepTimer(
     _env: JNIEnv,
     _this: JObject,

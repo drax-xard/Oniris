@@ -176,6 +176,8 @@ object PlaybackController {
         }
     }
 
+    fun masterGain(): Float = synchronized(lock) { masterGain }
+
     fun setPackGain(id: String, volume: Float) {
         synchronized(lock) {
             packGains = packGains + (id to volume.coerceIn(0f, 1f))

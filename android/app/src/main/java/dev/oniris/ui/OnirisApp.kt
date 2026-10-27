@@ -50,6 +50,7 @@ import dev.oniris.data.NativePack
 import dev.oniris.data.PackInfo
 import dev.oniris.data.PackRepository
 import dev.oniris.data.SettingsStore
+import dev.oniris.playback.PackPreviewController
 import dev.oniris.playback.PackSelection
 import dev.oniris.playback.PlaybackController
 import dev.oniris.playback.PlaybackService
@@ -112,6 +113,8 @@ fun OnirisApp(
     val settings by settingsStore.settings.collectAsStateWithLifecycle(initialValue = null)
     val isPlaying by PlaybackController.isPlaying.collectAsStateWithLifecycle()
     val message by PlaybackController.message.collectAsStateWithLifecycle()
+    val previewingId by PackPreviewController.activePackId.collectAsStateWithLifecycle()
+    val previewMessage by PackPreviewController.message.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
     var packs by remember { mutableStateOf<List<PackInfo>>(emptyList()) }
@@ -189,6 +192,13 @@ fun OnirisApp(
         message?.let {
             snackbarHostState.showSnackbar(it)
             PlaybackController.clearMessage()
+        }
+    }
+
+    LaunchedEffect(previewMessage) {
+        previewMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            PackPreviewController.clearMessage()
         }
     }
 
@@ -381,6 +391,12 @@ fun OnirisApp(
                                 pack = pack,
                                 selected = pack.id in activeSelectedIds,
                                 gain = packGains[pack.id] ?: 1f,
+                                previewing = previewingId == pack.id,
+                                onPreview = {
+                                    PackPreviewController.toggle(
+                                        PackSelection(pack.id, pack.name, pack.directory),
+                                    )
+                                },
                                 onGainChange = { value ->
                                     PlaybackController.setPackGain(pack.id, value)
                                     scope.launch { settingsStore.setPackGain(pack.id, value) }
@@ -441,6 +457,7 @@ fun OnirisApp(
 
                 Button(
                     onClick = {
+                        PackPreviewController.stop()
                         if (isPlaying) {
                             PlaybackService.pause(context)
                         } else {
@@ -613,6 +630,8 @@ private fun PackRow(
     pack: PackInfo,
     selected: Boolean,
     gain: Float,
+    previewing: Boolean,
+    onPreview: () -> Unit,
     onGainChange: (Float) -> Unit,
     onSelectedChange: (Boolean) -> Unit,
 ) {
@@ -679,7 +698,12 @@ private fun PackRow(
                 }
             }
             Spacer(Modifier.width(12.dp))
-            Switch(checked = selected, onCheckedChange = onSelectedChange)
+            Column(horizontalAlignment = Alignment.End) {
+                Switch(checked = selected, onCheckedChange = onSelectedChange)
+                TextButton(onClick = onPreview) {
+                    Text(if (previewing) "Stop" else "Preview")
+                }
+            }
         }
     }
 }

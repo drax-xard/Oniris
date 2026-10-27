@@ -45,6 +45,7 @@ class PlaybackService : Service() {
     private var focusRequest: AudioFocusRequest? = null
     private var resumeOnFocusGain = false
     private var ducked = false
+    private var gainBeforeDuck: Float? = null
     private var foregroundStarted = false
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -141,6 +142,7 @@ class PlaybackService : Service() {
     }
 
     private fun startPlayback() {
+        PackPreviewController.stop()
         if (playbackJob?.isActive == true) return
         if (!requestFocus()) {
             stopSelfSafely()
@@ -364,25 +366,29 @@ class PlaybackService : Service() {
         when (change) {
             AudioManager.AUDIOFOCUS_LOSS -> {
                 resumeOnFocusGain = false
+                restoreDuckedGain()
                 pausePlayback()
             }
 
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                 resumeOnFocusGain = PlaybackController.isPlaying.value
+                restoreDuckedGain()
                 pausePlayback()
             }
 
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 if (!ducked) {
                     ducked = true
-                    PlaybackController.setMasterGain(0.2f)
+                    val current = PlaybackController.masterGain()
+                    gainBeforeDuck = current
+                    PlaybackController.setMasterGain(current * 0.2f)
                 }
             }
 
             AudioManager.AUDIOFOCUS_GAIN -> {
                 if (ducked) {
                     ducked = false
-                    PlaybackController.setMasterGain(1.0f)
+                    restoreDuckedGain()
                 }
                 if (resumeOnFocusGain) {
                     resumeOnFocusGain = false
@@ -390,6 +396,13 @@ class PlaybackService : Service() {
                 }
             }
         }
+    }
+
+    private fun restoreDuckedGain() {
+        ducked = false
+        val previous = gainBeforeDuck ?: return
+        gainBeforeDuck = null
+        PlaybackController.setMasterGain(previous)
     }
 
     private fun createChannel() {

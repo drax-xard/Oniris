@@ -6,4 +6,7 @@
     <string name="play">Play</string>
     <string name="pause">Pause</string>
     <string name="stop">Stop</string>
+    <string name="quick_tile_label">Oniris</string>
+    <string name="quick_tile_playing">Oniris is playing. Tap to pause.</string>
+    <string name="quick_tile_idle">Oniris is paused. Tap to play the last mix.</string>
 </resources>

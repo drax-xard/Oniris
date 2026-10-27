@@ -10,12 +10,13 @@ Ogg/Opus decode/encode, deterministic `.onirispack` packaging/extraction, EBU
 R128 loudness/true-peak measurement and normalization, live mix crossfades,
 click-free per-pack gain ramps, manifest attribution credits, four generated
 CC0 procedural packs (Pure Noise, Rainy Night, Deep Space Cabin, Enchanted
-Forest), a procedural-only library mode, Android `.onirispack` import, per-pack
-volume, built-in/user presets, live mix changes, lock-screen metadata, and a
-bundled-pack build step are implemented and build. The debug APK runs on an
-Android 36 emulator: pack discovery, play/pause, media session, foreground
-notification, audio focus, and wake lock all work. Real field-recorded content,
-OEM testing, listening QA, and the 8-hour battery soak remain.
+Forest), a procedural-only library mode, Android `.onirispack` import, 30-second
+pack previews, per-pack volume, built-in/user presets, live mix changes,
+lock-screen metadata, a Quick Settings tile, and a bundled-pack build step are
+implemented and build. The debug APK runs on an Android 36 emulator: pack
+discovery, play/pause, media session, foreground notification, audio focus, and
+wake lock all work. Real field-recorded content, OEM testing, listening QA, and
+the 8-hour battery soak remain.
 
 **Local QA (Oct 2026):** a 60-minute rain+fire render completes in about 6 s with
 ~17 MB peak RSS on the development machine. `oniris-core/tests/golden.rs` covers
@@ -541,8 +542,9 @@ Assumes one developer working roughly full-time, with content sourcing in parall
 
 **Scaffold progress:** phase 0 (spike), phase 1 (core plus Ogg/Opus), and phase 2
 (playback spine) are substantially done; 60-minute listening QA is still open.
-Phase 3 (mixer UX) now has pack selection, per-pack and master volume, the timer,
-built-in and user-saved presets, live mix control, and lock-screen metadata.
+Phase 3 (mixer UX) now has pack selection, 30-second previews, per-pack and master volume, the timer,
+built-in and user-saved presets, live mix control, lock-screen metadata, and a
+Quick Settings tile.
 Phase 4 (content) uses the Opus encoder, `.onirispack` packer, loudness/normalize
 tools, Android importer, and bundled-pack build step; the remaining distribution
 work is optional in-app downloads. Pure Noise, Rainy Night, Deep Space Cabin,
