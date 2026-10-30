@@ -216,6 +216,10 @@ const PROCEDURAL_RECIPES: &[ProceduralRecipe] = &[
         id: "enchanted-forest",
         build: generate_enchanted_forest_pack,
     },
+    ProceduralRecipe {
+        id: "windy-sea-voyage",
+        build: generate_sea_voyage_pack,
+    },
 ];
 
 pub fn generate_procedural_packs(out: &Path, only: Option<&str>) -> Result<()> {
@@ -363,7 +367,7 @@ fn generate_procedural_rain(
                 "initialDelaySec": 0.5,
                 "gainDb": [-24.0, -12.0],
                 "pan": [-0.8, 0.8],
-                "fadeInMs": 10,
+                "fadeInMs": 4,
                 "fadeOutMs": 80,
                 "maxVoices": 3
             }
@@ -381,16 +385,22 @@ fn procedural_rain_source(seed: u64, frames: usize) -> Vec<f32> {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
     let mut output = vec![0.0f32; frames * 2];
 
-    // Dense droplets: short damped resonances scattered across the loop.
-    let drops = (frames as f32 * 0.0015) as usize;
+    // Rain detail: short, broadband "patter" transients. An earlier version
+    // used dense damped sines between 1.5 and 6 kHz; because they overlapped
+    // almost continuously they read as a chaotic high-pitched shimmer rather
+    // than rain. Exciting a broad band-pass with noise keeps the detail layer
+    // broadband, and lowering the density and pitch keeps it from dominating.
+    let drops = (frames as f32 / RATE as f32 * 50.0) as usize;
     for _ in 0..drops {
         let start = rng.gen_range(0..frames.saturating_sub(1));
-        let frequency = rng.gen_range(1_500.0f32..6_000.0);
-        let amplitude = rng.gen_range(0.008f32..0.060);
-        let decay = rng.gen_range(0.004f32..0.018);
-        let pan = rng.gen_range(-0.8f32..0.8);
+        let center = rng.gen_range(600.0f32..2_500.0);
+        let amplitude = rng.gen_range(0.015f32..0.05);
+        let decay = rng.gen_range(0.003f32..0.012);
+        let pan = rng.gen_range(-0.9f32..0.9);
         let (pan_l, pan_r) = pan_gains(pan);
-        let length = ((decay * 6.0 * RATE as f32) as usize).max(1);
+        let length = ((decay * 5.0 * RATE as f32) as usize).max(1);
+        let mut filter_l = Biquad::bandpass(center, 1.2);
+        let mut filter_r = Biquad::bandpass(center, 1.2);
 
         for offset in 0..length {
             let index = start + offset;
@@ -399,29 +409,35 @@ fn procedural_rain_source(seed: u64, frames: usize) -> Vec<f32> {
             }
             let time = offset as f32 / RATE as f32;
             let envelope = (-time / decay).exp();
-            let sample = (TAU * frequency * time).sin() * envelope * amplitude;
-            output[index * 2] += sample * pan_l;
-            output[index * 2 + 1] += sample * pan_r;
+            let noise_l = filter_l.process(rng.gen_range(-1.0f32..1.0));
+            let noise_r = filter_r.process(rng.gen_range(-1.0f32..1.0));
+            output[index * 2] += noise_l * envelope * amplitude * pan_l;
+            output[index * 2 + 1] += noise_r * envelope * amplitude * pan_r;
         }
     }
 
-    // Pink-ish hiss with a slow swell. Pink noise is closer to rain than a
-    // flat-spectrum hiss and is less fatiguing at low volume.
-    let mut low_l = 0.0f32;
-    let mut low_r = 0.0f32;
-    let mut pink_l = [0.0f32; 7];
-    let mut pink_r = [0.0f32; 7];
-    let low_pass = 0.96f32;
+    // Base bed: pink noise band-limited to roughly 200 Hz - 5 kHz, which is
+    // closer to rain than a flat hiss and much less fatiguing at low volume.
+    // A little low-passed body fills in the bottom end so the result does not
+    // turn into bright hiss.
+    let mut pink_state_l = [0.0f32; 7];
+    let mut pink_state_r = [0.0f32; 7];
+    let mut high_l = Biquad::high_pass(200.0, 0.707);
+    let mut high_r = Biquad::high_pass(200.0, 0.707);
+    let mut low_l = Biquad::low_pass(5_000.0, 0.707);
+    let mut low_r = Biquad::low_pass(5_000.0, 0.707);
+    let mut body_l = Biquad::low_pass(300.0, 0.707);
+    let mut body_r = Biquad::low_pass(300.0, 0.707);
     for frame in 0..frames {
         let white_l = rng.gen_range(-1.0f32..1.0);
         let white_r = rng.gen_range(-1.0f32..1.0);
-        let hiss_l = pink_sample(&mut pink_l, white_l);
-        let hiss_r = pink_sample(&mut pink_r, white_r);
-        low_l = low_pass * low_l + (1.0 - low_pass) * hiss_l;
-        low_r = low_pass * low_r + (1.0 - low_pass) * hiss_r;
+        let pink_l = pink_sample(&mut pink_state_l, white_l);
+        let pink_r = pink_sample(&mut pink_state_r, white_r);
+        let hiss_l = low_l.process(high_l.process(pink_l));
+        let hiss_r = low_r.process(high_r.process(pink_r));
         let swell = 0.85 + 0.15 * (TAU * frame as f32 / (RATE as f32 * 9.0)).sin();
-        output[frame * 2] += (hiss_l - low_l) * 0.24 * swell;
-        output[frame * 2 + 1] += (hiss_r - low_r) * 0.24 * swell;
+        output[frame * 2] += (hiss_l * 0.32 + body_l.process(pink_l) * 0.10) * swell;
+        output[frame * 2 + 1] += (hiss_r * 0.32 + body_r.process(pink_r) * 0.10) * swell;
     }
 
     for sample in &mut output {
@@ -430,21 +446,32 @@ fn procedural_rain_source(seed: u64, frames: usize) -> Vec<f32> {
     output
 }
 
+/// A water drip: a short bubble-like resonance with a slight upward glide and
+/// a broadband impact transient. A pure sine "ping" sounds synthetic; the
+/// noise and glide read as water.
 fn drip_event(seed: u64, seconds: f32) -> Vec<i16> {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
     let frames = (seconds * RATE as f32) as usize;
-    let frequency = rng.gen_range(1_200.0f32..3_600.0);
-    let decay = rng.gen_range(0.015f32..0.060);
+    let center = rng.gen_range(500.0f32..1_500.0);
+    let decay = rng.gen_range(0.020f32..0.070);
+    let rise = rng.gen_range(0.2f32..0.6);
+    let rise_time = (decay * 0.4).max(0.001);
+    let mut texture = Biquad::bandpass(center * 1.4, 3.0);
+    let mut impact_low = Biquad::low_pass(2_500.0, 0.707);
     let mut output = Vec::with_capacity(frames);
 
     for frame in 0..frames {
         let time = frame as f32 / RATE as f32;
         let envelope = (-time / decay).exp();
-        let pitch_drop = 1.0 - 0.15 * (time / (decay * 6.0)).min(1.0);
-        let mut sample = (TAU * frequency * pitch_drop * time).sin() * envelope;
-        if time < 0.002 {
-            sample += rng.gen_range(-1.0f32..1.0) * (1.0 - time / 0.002) * 0.3;
-        }
+        let glide = 1.0 + rise * (1.0 - (-time / rise_time).exp());
+        let tone = (TAU * center * time * glide).sin();
+        let texture_sample = texture.process(rng.gen_range(-1.0f32..1.0));
+        let impact = if time < 0.003 {
+            impact_low.process(rng.gen_range(-1.0f32..1.0)) * (1.0 - time / 0.003) * 0.35
+        } else {
+            0.0
+        };
+        let sample = (tone * 0.55 + texture_sample * 2.5 + impact) * envelope;
         output.push((sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16);
     }
     output
@@ -919,6 +946,176 @@ fn generate_enchanted_forest(dir: &Path, loop_frames: usize, fade_frames: usize)
     Ok(())
 }
 
+pub fn generate_sea_voyage_pack(out: &Path) -> Result<()> {
+    fs::create_dir_all(out).with_context(|| format!("failed to create {}", out.display()))?;
+    let dir = out.join("windy-sea-voyage");
+    generate_sea_voyage(&dir, 60 * RATE as usize, 2 * RATE as usize)?;
+    println!("generated {}", dir.display());
+    Ok(())
+}
+
+fn generate_sea_voyage(dir: &Path, loop_frames: usize, fade_frames: usize) -> Result<()> {
+    fs::create_dir_all(dir.join("audio"))?;
+
+    let wind_source = sea_wind_bed(0x5EA1, loop_frames + fade_frames);
+    let sea_source = sea_swell_bed(0x5EA2, loop_frames + fade_frames);
+    let mut wind = crossfade_loop(&wind_source, loop_frames, fade_frames);
+    let mut sea = crossfade_loop(&sea_source, loop_frames, fade_frames);
+    let after = normalize_bed_pair(&mut wind, &mut sea, db_to_linear(-6.0), db_to_linear(-10.0))?;
+
+    let wind_file = write_audio(dir, "wind", 2, &wind, AudioFormat::Opus)?;
+    let sea_file = write_audio(dir, "sea", 2, &sea, AudioFormat::Opus)?;
+    let mut credits = vec![
+        serde_json::json!({
+            "asset": &wind_file,
+            "title": "Sea wind",
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }),
+        serde_json::json!({
+            "asset": &sea_file,
+            "title": "Ocean swell",
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }),
+    ];
+
+    let mut creak_files = Vec::new();
+    for (index, (seed, seconds)) in [(0x5C01u64, 1.8f32), (0x5C02, 2.3), (0x5C03, 1.5)]
+        .iter()
+        .enumerate()
+    {
+        let event = normalize_peak(&creak_event(*seed, *seconds), -4.0);
+        let name = format!("creak-{:02}", index + 1);
+        let file = write_audio(dir, &name, 1, &event, AudioFormat::Opus)?;
+        credits.push(serde_json::json!({
+            "asset": &file,
+            "title": name,
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }));
+        creak_files.push(file);
+    }
+
+    let mut splash_files = Vec::new();
+    for (index, (seed, seconds)) in [(0x5D01u64, 2.4f32), (0x5D02, 1.8), (0x5D03, 2.8)]
+        .iter()
+        .enumerate()
+    {
+        let event = normalize_peak(&splash_event(*seed, *seconds), -4.0);
+        let name = format!("splash-{:02}", index + 1);
+        let file = write_audio(dir, &name, 1, &event, AudioFormat::Opus)?;
+        credits.push(serde_json::json!({
+            "asset": &file,
+            "title": name,
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }));
+        splash_files.push(file);
+    }
+
+    let mut bell_files = Vec::new();
+    for (index, (seed, seconds)) in [(0x5B01u64, 5.0f32), (0x5B02, 4.2)].iter().enumerate() {
+        let event = normalize_peak(&ship_bell_event(*seed, *seconds), -6.0);
+        let name = format!("bell-{:02}", index + 1);
+        let file = write_audio(dir, &name, 1, &event, AudioFormat::Opus)?;
+        credits.push(serde_json::json!({
+            "asset": &file,
+            "title": name,
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }));
+        bell_files.push(file);
+    }
+
+    let true_peak = rounded_db(after.true_peak_dbtp);
+    let manifest = serde_json::json!({
+        "schemaVersion": 1,
+        "id": "windy-sea-voyage",
+        "name": { "en": "Windy Sea Voyage" },
+        "description": {
+            "en": "A small ship crossing a night sea: gusting wind in the rigging, long swells against the hull, and the occasional creak of timber."
+        },
+        "version": "1.0.0",
+        "license": "CC0-1.0",
+        "procedural": true,
+        "tags": ["sea", "ocean", "wind", "ship", "procedural"],
+        "loudnessLufs": -23.0,
+        "truePeakDbtp": true_peak,
+        "beds": [
+            {
+                "id": "wind",
+                "file": &wind_file,
+                "loop": { "startSample": 0, "endSample": loop_frames },
+                "gainDb": -6.0,
+                "lfo": { "target": "gain", "depth": 0.9, "periodSec": 53.0 }
+            },
+            {
+                "id": "sea",
+                "file": &sea_file,
+                "loop": { "startSample": 0, "endSample": loop_frames },
+                "gainDb": -10.0,
+                "pan": -0.1,
+                "lfo": { "target": "pan", "depth": 0.12, "periodSec": 41.0 }
+            }
+        ],
+        "events": [
+            {
+                "id": "creak",
+                "files": creak_files,
+                "minIntervalSec": 25.0,
+                "maxIntervalSec": 85.0,
+                "initialDelaySec": 12.0,
+                "gainDb": [-20.0, -13.0],
+                "pan": [-0.6, 0.6],
+                "fadeInMs": 250,
+                "fadeOutMs": 1400,
+                "maxVoices": 1
+            },
+            {
+                "id": "splash",
+                "files": splash_files,
+                "minIntervalSec": 12.0,
+                "maxIntervalSec": 40.0,
+                "initialDelaySec": 4.0,
+                "gainDb": [-22.0, -15.0],
+                "pan": [-0.7, 0.7],
+                "fadeInMs": 20,
+                "fadeOutMs": 1200,
+                "maxVoices": 2
+            },
+            {
+                "id": "bell",
+                "files": bell_files,
+                "minIntervalSec": 75.0,
+                "maxIntervalSec": 180.0,
+                "initialDelaySec": 45.0,
+                "gainDb": [-26.0, -20.0],
+                "pan": [-0.5, 0.5],
+                "fadeInMs": 40,
+                "fadeOutMs": 2500,
+                "maxVoices": 1
+            }
+        ],
+        "credits": credits
+    });
+    fs::write(
+        dir.join("manifest.json"),
+        serde_json::to_string_pretty(&manifest)?,
+    )?;
+    Ok(())
+}
+
 fn rounded_db(value: f32) -> f64 {
     if value.is_finite() {
         (f64::from(value) * 10.0).round() / 10.0
@@ -1139,6 +1336,150 @@ fn brook_bed(seed: u64, frames: usize) -> Vec<f32> {
 
     for sample in &mut output {
         *sample = sample.clamp(-0.95, 0.95);
+    }
+    output
+}
+
+fn sea_wind_bed(seed: u64, frames: usize) -> Vec<f32> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut body_lp_l = Biquad::low_pass(1_400.0, 0.7);
+    let mut body_lp_r = Biquad::low_pass(1_400.0, 0.7);
+    let mut body_hp_l = Biquad::high_pass(180.0, 0.7);
+    let mut body_hp_r = Biquad::high_pass(180.0, 0.7);
+    let mut rig_low_l = Biquad::bandpass(520.0, 3.0);
+    let mut rig_low_r = Biquad::bandpass(520.0, 3.0);
+    let mut rig_high_l = Biquad::bandpass(1_250.0, 4.0);
+    let mut rig_high_r = Biquad::bandpass(1_250.0, 4.0);
+    let mut rumble_l = Biquad::low_pass(110.0, 0.7);
+    let mut rumble_r = Biquad::low_pass(110.0, 0.7);
+    let gust_a = rng.gen_range(0.0..TAU);
+    let gust_b = rng.gen_range(0.0..TAU);
+    let mut output = Vec::with_capacity(frames * 2);
+
+    for frame in 0..frames {
+        let time = frame as f32 / RATE as f32;
+        // Two incommensurate gust cycles keep the wind from pulsing on a
+        // single obvious period.
+        let gust = 0.3
+            + 0.7
+                * (0.5 + 0.5 * (TAU * time / 41.0 + gust_a).sin())
+                * (0.5 + 0.5 * (TAU * time / 67.0 + gust_b).sin());
+        let white_l = rng.gen_range(-1.0f32..1.0);
+        let white_r = rng.gen_range(-1.0f32..1.0);
+        let body_l = body_lp_l.process(body_hp_l.process(white_l));
+        let body_r = body_lp_r.process(body_hp_r.process(white_r));
+        // Narrow resonances suggest rigging and sail edges without becoming
+        // a constant whistle; they only come forward with the gusts.
+        let rig_l = rig_low_l.process(white_l) * 0.6 + rig_high_l.process(white_l) * 0.4;
+        let rig_r = rig_low_r.process(white_r) * 0.6 + rig_high_r.process(white_r) * 0.4;
+        let rumble_l = rumble_l.process(white_l);
+        let rumble_r = rumble_r.process(white_r);
+        let left = (body_l * 0.55 + rig_l * 0.5) * gust + rumble_l * 0.2;
+        let right = (body_r * 0.55 + rig_r * 0.5) * gust + rumble_r * 0.2;
+        output.push((left * 0.85).clamp(-0.9, 0.9));
+        output.push((right * 0.85).clamp(-0.9, 0.9));
+    }
+    output
+}
+
+fn sea_swell_bed(seed: u64, frames: usize) -> Vec<f32> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut rumble_l = Biquad::low_pass(200.0, 0.7);
+    let mut rumble_r = Biquad::low_pass(200.0, 0.7);
+    let mut mid_l = Biquad::bandpass(550.0, 0.7);
+    let mut mid_r = Biquad::bandpass(550.0, 0.7);
+    let mut foam_band_l = Biquad::bandpass(3_200.0, 0.9);
+    let mut foam_band_r = Biquad::bandpass(3_200.0, 0.9);
+    let mut foam_lp_l = Biquad::low_pass(5_500.0, 0.7);
+    let mut foam_lp_r = Biquad::low_pass(5_500.0, 0.7);
+    let phase_a = rng.gen_range(0.0..TAU);
+    let phase_b = rng.gen_range(0.0..TAU);
+    let phase_a_r = rng.gen_range(0.0..TAU);
+    let phase_b_r = rng.gen_range(0.0..TAU);
+    let mut output = Vec::with_capacity(frames * 2);
+
+    for frame in 0..frames {
+        let time = frame as f32 / RATE as f32;
+        // A cubed short cycle gives long troughs and brief crests; a second
+        // slow cycle keeps successive waves from sounding identical.
+        let wave_l = (0.5 + 0.5 * (TAU * time / 10.3 + phase_a).sin()).powi(3);
+        let long_l = (0.5 + 0.5 * (TAU * time / 27.7 + phase_b).sin()).powi(2);
+        let swell_l = 0.25 + 0.75 * (0.65 * wave_l + 0.35 * long_l);
+        let wave_r = (0.5 + 0.5 * (TAU * time / 9.7 + phase_a_r).sin()).powi(3);
+        let long_r = (0.5 + 0.5 * (TAU * time / 25.3 + phase_b_r).sin()).powi(2);
+        let swell_r = 0.25 + 0.75 * (0.65 * wave_r + 0.35 * long_r);
+        let white_l = rng.gen_range(-1.0f32..1.0);
+        let white_r = rng.gen_range(-1.0f32..1.0);
+        let low_l = rumble_l.process(white_l);
+        let low_r = rumble_r.process(white_r);
+        let mid_l = mid_l.process(white_l);
+        let mid_r = mid_r.process(white_r);
+        let foam_l = foam_lp_l.process(foam_band_l.process(white_l));
+        let foam_r = foam_lp_r.process(foam_band_r.process(white_r));
+        let left = low_l * 0.65 + (mid_l * 0.55 + foam_l * 0.18) * swell_l;
+        let right = low_r * 0.65 + (mid_r * 0.55 + foam_r * 0.18) * swell_r;
+        output.push((left * 0.8).clamp(-0.9, 0.9));
+        output.push((right * 0.8).clamp(-0.9, 0.9));
+    }
+    output
+}
+
+fn splash_event(seed: u64, seconds: f32) -> Vec<i16> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let frames = (seconds * RATE as f32) as usize;
+    let decay = rng.gen_range(0.35f32..0.85);
+    let thump_frequency = rng.gen_range(45.0f32..90.0);
+    let attack_time = rng.gen_range(0.008f32..0.03);
+    let mut body = Biquad::low_pass(2_600.0, 0.7);
+    let mut foam = Biquad::low_pass(5_500.0, 0.7);
+    let mut output = Vec::with_capacity(frames);
+
+    for frame in 0..frames {
+        let time = frame as f32 / RATE as f32;
+        let attack = (time / attack_time).min(1.0);
+        let envelope = attack * (-time / decay).exp();
+        let white = rng.gen_range(-1.0f32..1.0);
+        let body_sample = body.process(white) * envelope;
+        let thump =
+            (TAU * thump_frequency * time).sin() * attack * (-time / (decay * 0.7)).exp() * 0.6;
+        let foam_sample = foam.process(white)
+            * (1.0 - (-time / 0.12).exp())
+            * (-time / (decay * 2.2)).exp()
+            * 0.25;
+        let sample = body_sample + thump + foam_sample;
+        output.push((sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16);
+    }
+    output
+}
+
+fn ship_bell_event(seed: u64, seconds: f32) -> Vec<i16> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let frames = (seconds * RATE as f32) as usize;
+    let base = rng.gen_range(170.0f32..300.0);
+    let decay = rng.gen_range(1.4f32..2.6);
+    // Inharmonic partials read as a small cast bell rather than a musical tone.
+    let partials = [
+        (1.0f32, 1.0f32, 1.0f32),
+        (2.0, 0.5, 0.8),
+        (2.42, 0.32, 0.65),
+        (3.0, 0.2, 0.5),
+        (4.16, 0.1, 0.35),
+        (5.43, 0.05, 0.22),
+    ];
+    let mut low_pass = Biquad::low_pass(4_000.0, 0.7);
+    let mut output = Vec::with_capacity(frames);
+
+    for frame in 0..frames {
+        let time = frame as f32 / RATE as f32;
+        let attack = (time / 0.02).min(1.0);
+        let mut sample = 0.0f32;
+        for (ratio, amplitude, decay_scale) in &partials {
+            sample += (TAU * base * ratio * time).sin()
+                * amplitude
+                * (-time / (decay * decay_scale)).exp();
+        }
+        let sample = low_pass.process(sample) * attack * 0.35;
+        output.push((sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16);
     }
     output
 }
@@ -1509,6 +1850,74 @@ mod tests {
     use super::*;
     use oniris_core::decode_audio;
 
+    /// Power at one frequency, used as a cheap spectral probe in tests.
+    fn goertzel_power(samples: &[f32], rate: u32, frequency: f32) -> f64 {
+        let omega = std::f64::consts::TAU * frequency as f64 / rate as f64;
+        let coefficient = 2.0 * omega.cos();
+        let mut previous = 0.0f64;
+        let mut older = 0.0f64;
+        for sample in samples {
+            let state = *sample as f64 + coefficient * previous - older;
+            older = previous;
+            previous = state;
+        }
+        (previous * previous + older * older - coefficient * previous * older).max(0.0)
+    }
+
+    fn band_power(samples: &[f32], rate: u32, low: f32, high: f32) -> f64 {
+        let step = 2.0f32.powf(1.0 / 6.0);
+        let mut frequency = low;
+        let mut total = 0.0;
+        while frequency < high {
+            total += goertzel_power(samples, rate, frequency);
+            frequency *= step;
+        }
+        total
+    }
+
+    #[test]
+    fn procedural_rain_has_a_natural_spectral_balance() {
+        let frames = 5 * RATE as usize;
+        let source = procedural_rain_source(0x7A1, frames);
+        let mono: Vec<f32> = source
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|frame| 0.5 * (frame[0] + frame[1]))
+            .collect();
+
+        // A high-pitched bed (dense sines between 1.5 and 6 kHz) puts as much
+        // energy in 4-8 kHz as in 1-2 kHz. Rain should fall off well before
+        // that, both to sound natural and to stay comfortable at low volume.
+        let low = band_power(&mono, RATE, 1_000.0, 2_000.0);
+        let high = band_power(&mono, RATE, 4_000.0, 8_000.0);
+        assert!(
+            low > 0.0 && high > 0.0,
+            "procedural rain measured as silence"
+        );
+        let ratio_db = 10.0 * (high / low).log10();
+        assert!(
+            ratio_db < -4.0,
+            "rain 4-8 kHz energy was {ratio_db:.1} dB relative to 1-2 kHz; the bed is too bright"
+        );
+
+        // Third-octave probes, as a coarse centroid guard.
+        let (mut total, mut weighted) = (0.0, 0.0);
+        let step = 2.0f32.powf(1.0 / 3.0);
+        let mut frequency = 100.0f32;
+        while frequency < 16_000.0 {
+            let power = goertzel_power(&mono, RATE, frequency);
+            total += power;
+            weighted += frequency as f64 * power;
+            frequency *= step;
+        }
+        let centroid = weighted / total;
+        assert!(
+            (400.0..2_000.0).contains(&centroid),
+            "rain spectral centroid was {centroid:.0} Hz; the bed should stay broadband"
+        );
+    }
+
     #[test]
     fn generates_valid_procedural_rain_pack() {
         let dir = tempfile::tempdir().unwrap();
@@ -1605,6 +2014,80 @@ mod tests {
             (measurement.integrated_lufs + 23.0).abs() < 1.5,
             "loudness {}",
             measurement.integrated_lufs
+        );
+    }
+
+    #[test]
+    fn generates_valid_windy_sea_voyage_pack() {
+        let dir = tempfile::tempdir().unwrap();
+        let pack = dir.path().join("windy-sea-voyage");
+        let frames = 10 * RATE as usize;
+        generate_sea_voyage(&pack, frames, RATE as usize).unwrap();
+
+        let manifest = Manifest::load(&pack).unwrap();
+        manifest.validate_files(&pack).unwrap();
+        assert!(manifest.procedural);
+        assert_eq!(manifest.id, "windy-sea-voyage");
+        assert_eq!(manifest.beds.len(), 2);
+        assert_eq!(manifest.events.len(), 3);
+        assert_eq!(manifest.events[0].files.len(), 3);
+        assert_eq!(manifest.events[1].files.len(), 3);
+        assert_eq!(manifest.events[2].files.len(), 2);
+        assert_eq!(manifest.credits.len(), 10);
+
+        let wind = decode_audio(&pack.join("audio/wind.opus"), RATE).unwrap();
+        let sea = decode_audio(&pack.join("audio/sea.opus"), RATE).unwrap();
+        assert_eq!(wind.frames, frames);
+        assert_eq!(sea.frames, frames);
+        let combined = mix_scaled(
+            &wind.samples,
+            &sea.samples,
+            db_to_linear(-6.0),
+            db_to_linear(-10.0),
+        );
+        let measurement = crate::loudness::measure(&combined, 2, RATE);
+        assert!(
+            (measurement.integrated_lufs + 23.0).abs() < 1.5,
+            "loudness {}",
+            measurement.integrated_lufs
+        );
+    }
+
+    #[test]
+    fn windy_sea_beds_have_a_natural_spectral_balance() {
+        let frames = 5 * RATE as usize;
+        let wind = sea_wind_bed(0x5EA1, frames);
+        let sea = sea_swell_bed(0x5EA2, frames);
+        let mono: Vec<f32> = wind
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .zip(sea.as_chunks::<2>().0.iter())
+            .map(|(wind, sea)| 0.25 * (wind[0] + wind[1] + sea[0] + sea[1]))
+            .collect();
+
+        let low = band_power(&mono, RATE, 1_000.0, 2_000.0);
+        let high = band_power(&mono, RATE, 4_000.0, 8_000.0);
+        assert!(low > 0.0 && high > 0.0, "sea beds measured as silence");
+        let ratio_db = 10.0 * (high / low).log10();
+        assert!(
+            ratio_db < -6.0,
+            "sea 4-8 kHz energy was {ratio_db:.1} dB relative to 1-2 kHz; the beds are too bright"
+        );
+
+        let (mut total, mut weighted) = (0.0, 0.0);
+        let step = 2.0f32.powf(1.0 / 3.0);
+        let mut frequency = 100.0f32;
+        while frequency < 16_000.0 {
+            let power = goertzel_power(&mono, RATE, frequency);
+            total += power;
+            weighted += frequency as f64 * power;
+            frequency *= step;
+        }
+        let centroid = weighted / total;
+        assert!(
+            (400.0..2_500.0).contains(&centroid),
+            "sea spectral centroid was {centroid:.0} Hz; the beds should stay broad and low"
         );
     }
 

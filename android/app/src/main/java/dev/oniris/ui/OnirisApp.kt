@@ -88,6 +88,13 @@ private val builtInPresets = listOf(
         builtIn = true,
     ),
     MixPreset(
+        id = "builtin-sea-voyage",
+        name = "Sea Voyage",
+        packIds = listOf("windy-sea-voyage"),
+        timerMinutes = 45,
+        builtIn = true,
+    ),
+    MixPreset(
         id = "builtin-pure-noise",
         name = "Pure Noise",
         packIds = listOf("pure-noise"),

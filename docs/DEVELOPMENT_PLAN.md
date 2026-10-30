@@ -548,9 +548,9 @@ Quick Settings tile.
 Phase 4 (content) uses the Opus encoder, `.onirispack` packer, loudness/normalize
 tools, Android importer, and bundled-pack build step; the remaining distribution
 work is optional in-app downloads. Pure Noise, Rainy Night, Deep Space Cabin,
-and Enchanted Forest are generated from the CLI, bundled into the APK by
-`make android`, and can also be imported; the field-recorded Rainy Night,
-Seaside, Cabin Fire, and Forest Deep packs are next.
+Enchanted Forest, and Windy Sea Voyage are generated from the CLI, bundled into
+the APK by `make android`, and can also be imported; the field-recorded Rainy
+Night, Seaside, Cabin Fire, and Forest Deep packs are next.
 
 **Desktop track:** a macOS/Linux shell is planned as a separate workstream. It
 reuses the Rust core and pack format with iced + cpal; see

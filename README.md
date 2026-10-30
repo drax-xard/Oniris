@@ -4,7 +4,7 @@ Oniris is a battery-first Android sleep-soundscape app. It mixes seamless ambien
 
 The audio engine is written in Rust so the same sound model can run on Android today and on desktop, Raspberry Pi, or the web later.
 
-**Status:** v1.0 feature set is nearly complete. The Rust core, pack format, deterministic `.onirispack` archives, attribution credits, four CC0 procedural packs (Pure Noise, Rainy Night, Deep Space Cabin, Enchanted Forest), CLI, Android shell, Ogg/Opus decode/encode, Android pack import, 30-second pack previews, per-pack volume, presets, live mix crossfades, Media3 media session with lock-screen metadata, Quick Settings tile, and bundled-pack build step are in place, and the Android debug and release APKs build with JDK 21 + SDK 36. Field-recorded sound packs, in-app downloads, real-device listening/battery QA, OEM soak testing, and code signing remain.
+**Status:** v1.0 feature set is nearly complete. The Rust core, pack format, deterministic `.onirispack` archives, attribution credits, five CC0 procedural packs (Pure Noise, Rainy Night, Deep Space Cabin, Enchanted Forest, Windy Sea Voyage), CLI, Android shell, Ogg/Opus decode/encode, Android pack import, 30-second pack previews, per-pack volume, presets, live mix crossfades, Media3 media session with lock-screen metadata, Quick Settings tile, and bundled-pack build step are in place, and the Android debug and release APKs build with JDK 21 + SDK 36. Field-recorded sound packs, in-app downloads, real-device listening/battery QA, OEM soak testing, and code signing remain.
 
 ## What works today
 
@@ -13,7 +13,7 @@ The audio engine is written in Rust so the same sound model can run on Android t
 - `oniris analyze`: peak, RMS, maximum sample-to-sample delta, and large-jump counts for render QA.
 - Android app: pack library, 30-second pack previews, `.onirispack` import through the system document picker, multi-pack selection (up to 4) with per-pack volume, master volume, procedural-only library mode, built-in and user-saved presets, sleep timer, live mix changes without rebuilding the engine, Media3 `MediaSessionService` with notification/lock-screen metadata, Quick Settings playback tile, audio focus, wake lock, persisted settings.
 - Native library builds for `arm64-v8a`, `armeabi-v7a`, and `x86_64`; debug and release APKs assemble.
-- `make android` generates four procedural packs and bundles them into the APK, so a fresh install has content without network access.
+- `make android` generates five procedural packs and bundles them into the APK, so a fresh install has content without network access.
 
 Smoke-tested on an Android 36 x86_64 emulator: pack discovery, play/pause, media-session state, foreground notification, and wake-lock acquire/release all work. Opus decode, per-pack gain ramps, archive import, and golden render tests (level, brightness, loop seams, determinism) are covered by the Rust suite; on-device audio, live-mix listening, and battery soak tests are still pending. The codec is pure Rust (`opus-pure`), so Android builds need no extra native library.
 

@@ -2,6 +2,7 @@ package dev.oniris.data
 
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -93,11 +94,37 @@ class PackRepository(context: Context) {
     private fun installBundledPacks() {
         packsDir.mkdirs()
         val bundled = runCatching { assets.list(BUNDLED_ROOT) }.getOrNull() ?: return
+        val marker = File(packsDir, BUNDLED_REVISION_FILE)
+        val revision = appRevision()
+        if (marker.isFile && marker.readText() == revision) return
+
         for (id in bundled) {
             val destination = File(packsDir, id)
-            if (destination.exists()) continue
-            runCatching { copyAssetDirectory("$BUNDLED_ROOT/$id", destination) }
-                .onFailure { Log.w(TAG, "could not install bundled pack $id", it) }
+            val staging = File(packsDir, ".$id.staged")
+            staging.deleteRecursively()
+            if (!runCatching { copyAssetDirectory("$BUNDLED_ROOT/$id", staging) }.isSuccess) {
+                Log.w(TAG, "could not stage bundled pack $id")
+                staging.deleteRecursively()
+                continue
+            }
+            destination.deleteRecursively()
+            if (!staging.renameTo(destination)) {
+                Log.w(TAG, "could not replace bundled pack $id")
+                staging.deleteRecursively()
+            }
+        }
+        runCatching { marker.writeText(revision) }
+            .onFailure { Log.w(TAG, "could not record bundled pack revision", it) }
+    }
+
+    /** Version code of the installed app; bundled packs are refreshed when it changes. */
+    @Suppress("DEPRECATION")
+    private fun appRevision(): String {
+        val info = appContext.packageManager.getPackageInfo(appContext.packageName, 0)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            info.longVersionCode.toString()
+        } else {
+            info.versionCode.toString()
         }
     }
 
@@ -189,6 +216,7 @@ class PackRepository(context: Context) {
     companion object {
         private const val TAG = "Oniris"
         private const val BUNDLED_ROOT = "packs"
+        private const val BUNDLED_REVISION_FILE = ".bundled-revision"
         private const val COPY_BUFFER_BYTES = 64 * 1024
         private const val MAX_ARCHIVE_BYTES = 1024L * 1024 * 1024
     }

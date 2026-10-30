@@ -1,4 +1,4 @@
-# Oniris 1.0.0-beta4 — tester guide
+# Oniris 1.0.0-beta6 — tester guide
 
 This is an internal, release-mode Android beta for real-device testing. It is
 not a Play Store build.
@@ -7,9 +7,9 @@ not a Play Store build.
 
 - Android 8.0+ (API 26), target SDK 36.
 - Native audio engine for `arm64-v8a`, `armeabi-v7a`, and `x86_64`.
-- Four bundled CC0 procedural packs: Pure Noise, Rainy Night, Deep Space Cabin,
-  and Enchanted Forest.
-- Pack library, `.onirispack` import, per-pack and master volume, four built-in
+- Five bundled CC0 procedural packs: Pure Noise, Rainy Night, Deep Space Cabin,
+  Enchanted Forest, and Windy Sea Voyage.
+- Pack library, `.onirispack` import, per-pack and master volume, five built-in
   presets plus user-saved presets, sleep timer, live mix changes, foreground
   playback, audio focus, headphone-disconnect pause, and lock-screen controls.
 - No accounts, ads, analytics, or network requirement for playback.
@@ -48,8 +48,8 @@ not a Play Store build.
 
 ## First run
 
-1. Pick a preset: **Rainy Night**, **Deep Space**, **Forest**, or **Pure
-   Noise**. Each preset sets a 45-minute timer.
+1. Pick a preset: **Rainy Night**, **Deep Space**, **Forest**, **Sea Voyage**,
+   or **Pure Noise**. Each preset sets a 45-minute timer.
 2. Press **Play**. The app fades in and keeps playing with the screen off.
 3. Optional: open **Sound packs** to select up to four packs and adjust each
    pack's volume.
@@ -146,7 +146,7 @@ Please include:
 
 ## Build metadata
 
-- Version: `1.0.0-beta4` (`versionCode 5`)
+- Version: `1.0.0-beta6` (`versionCode 7`)
 - Package: `dev.oniris`
 - ABIs: `arm64-v8a`, `armeabi-v7a`, `x86_64`
 - Signed with the internal `Oniris Beta` test key.

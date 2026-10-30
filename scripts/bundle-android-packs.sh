@@ -14,6 +14,7 @@ packs=(
   rainy-night-procedural
   deep-space-cabin
   enchanted-forest
+  windy-sea-voyage
 )
 
 cargo run --quiet --manifest-path "$manifest" -p oniris-cli -- \

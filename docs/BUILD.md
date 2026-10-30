@@ -172,10 +172,10 @@ sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
 ## Content
 
 `make android-packs` runs `scripts/bundle-android-packs.sh`, which generates the
-four procedural packs and copies them to
+five procedural packs and copies them to
 `android/app/src/main/assets/packs/<id>/`. `PackRepository` copies them to the
-app's internal `files/packs` directory on first launch and skips packs that are
-already installed.
+app's internal `files/packs` directory and refreshes them when the app version
+changes, while leaving imported and user packs untouched.
 
 To try an import without rebuilding, generate an archive and pick it from the
 app's **Import** button:

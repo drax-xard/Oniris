@@ -257,13 +257,16 @@ Implemented in the CLI and Android shell:
 
 - `oniris gen-procedural-packs <dir>` generates:
   - **Pure Noise** — layered pink/brown noise.
-  - **Rainy Night (Synthetic)** — high-passed noise bed with stochastic
-    droplet resonances, three procedural thunder events, and six drip events.
+  - **Rainy Night (Synthetic)** — band-limited pink-noise bed with stochastic
+    broadband droplet patter, three procedural thunder events, and six drip
+    events.
   - **Deep Space Cabin** — engine drone + air handling, soft beeps, hull
     creaks, and airlock thumps.
   - **Enchanted Forest** — wind + brook beds, sparse chimes, owls, and leaf
     rustles.
-- All four packs are CC0, carry per-asset credits, and set
+  - **Windy Sea Voyage** — gusting wind and rolling swell beds, hull creaks,
+    water slaps, and a rare distant ship's bell.
+- All five packs are CC0, carry per-asset credits, and set
   `"procedural": true`.
 - The Android app has a persisted **Procedural only** switch that hides
   recorded packs and filters the active mix to procedural packs.
@@ -280,6 +283,8 @@ Prototype measurements (48 kHz, Opus):
   peak ≈ -13 dBFS, no jumps.
 - **Enchanted Forest**: wind + brook beds, ~1.6 MB, render ≈ -23.2 LUFS,
   peak ≈ -11 dBFS, no jumps.
+- **Windy Sea Voyage**: wind + swell beds, 3 creak + 3 splash + 2 bell events,
+  ~1.7 MB, render ≈ -23.3 LUFS, peak ≈ -10.5 dBFS, no jumps.
 
 ## Prototype plan
 
