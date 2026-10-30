@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -132,6 +133,7 @@ fun OnirisApp(
     var importing by remember { mutableStateOf(false) }
     var refreshToken by remember { mutableIntStateOf(0) }
     var showSavePreset by remember { mutableStateOf(false) }
+    var showLicenses by remember { mutableStateOf(false) }
     var presetName by remember { mutableStateOf("") }
 
     val importLauncher = rememberLauncherForActivityResult(
@@ -513,38 +515,12 @@ fun OnirisApp(
                 if (packs.any { it.credits.isNotEmpty() }) {
                     Spacer(Modifier.height(24.dp))
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
-                    Spacer(Modifier.height(16.dp))
-                    Text("Licenses & credits", style = MaterialTheme.typography.titleMedium)
-                    packs.filter { it.credits.isNotEmpty() }.forEach { pack ->
-                        Spacer(Modifier.height(10.dp))
-                        Text(
-                            text = pack.name,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        pack.credits.forEach { credit ->
-                            val line = buildString {
-                                append(credit.title)
-                                append(" — ")
-                                append(credit.author)
-                                append(" (")
-                                append(credit.license)
-                                if (credit.modified) append(", edited")
-                                append(")")
-                            }
-                            Text(
-                                text = line,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            if (credit.source.isNotBlank()) {
-                                Text(
-                                    text = credit.source,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(
+                        onClick = { showLicenses = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Licenses & credits")
                     }
                 }
 
@@ -593,6 +569,63 @@ fun OnirisApp(
             dismissButton = {
                 TextButton(onClick = { showSavePreset = false }) {
                     Text("Cancel")
+                }
+            },
+        )
+    }
+
+    if (showLicenses) {
+        val creditedPacks = packs.filter { it.credits.isNotEmpty() }
+        AlertDialog(
+            onDismissRequest = { showLicenses = false },
+            title = { Text("Licenses & credits") },
+            text = {
+                Column(
+                    Modifier
+                        .heightIn(max = 400.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    creditedPacks.forEachIndexed { index, pack ->
+                        if (index > 0) Spacer(Modifier.height(16.dp))
+                        Text(
+                            text = pack.name,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            text = pack.license,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        pack.credits.forEach { credit ->
+                            Spacer(Modifier.height(6.dp))
+                            val line = buildString {
+                                append(credit.title)
+                                append(" — ")
+                                append(credit.author)
+                                append(" (")
+                                append(credit.license)
+                                if (credit.modified) append(", edited")
+                                append(")")
+                            }
+                            Text(
+                                text = line,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            if (credit.source.isNotBlank()) {
+                                Text(
+                                    text = credit.source,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showLicenses = false }) {
+                    Text("Close")
                 }
             },
         )

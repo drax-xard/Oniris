@@ -1,4 +1,4 @@
-# Oniris 1.0.0-beta6 — tester guide
+# Oniris 1.0.0-beta7 — tester guide
 
 This is an internal, release-mode Android beta for real-device testing. It is
 not a Play Store build.
@@ -12,6 +12,8 @@ not a Play Store build.
 - Pack library, `.onirispack` import, per-pack and master volume, five built-in
   presets plus user-saved presets, sleep timer, live mix changes, foreground
   playback, audio focus, headphone-disconnect pause, and lock-screen controls.
+- Per-pack attributions in a **Licenses & credits** dialog instead of a long
+  list on the main screen.
 - No accounts, ads, analytics, or network requirement for playback.
 
 ## Requirements
@@ -146,7 +148,7 @@ Please include:
 
 ## Build metadata
 
-- Version: `1.0.0-beta6` (`versionCode 7`)
+- Version: `1.0.0-beta7` (`versionCode 8`)
 - Package: `dev.oniris`
 - ABIs: `arm64-v8a`, `armeabi-v7a`, `x86_64`
 - Signed with the internal `Oniris Beta` test key.
