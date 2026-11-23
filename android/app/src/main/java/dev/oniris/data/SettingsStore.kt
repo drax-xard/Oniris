@@ -28,7 +28,10 @@ data class Settings(
     val proceduralOnly: Boolean = false,
 )
 
-private val Context.dataStore: DataStore<Preferences> by preferencesDataStore("oniris_settings")
+private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "oniris_settings",
+    produceMigrations = { listOf(LegacySettingsMigration) },
+)
 
 class SettingsStore(context: Context) {
     private val dataStore = context.applicationContext.dataStore
