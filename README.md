@@ -90,6 +90,7 @@ The app starts gracefully if `liboniris_jni.so` is missing, but playback require
 - [Pack format](docs/PACK_FORMAT.md)
 - [Build notes](docs/BUILD.md)
 - [Localization](docs/LOCALIZATION.md)
+- [Procedural pack quality review](docs/PACK_QUALITY_REVIEW.md)
 - [Content licensing](docs/LICENSING.md)
 
 ## Decisions locked for v1

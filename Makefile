@@ -1,7 +1,8 @@
 CARGO_MANIFEST := core/Cargo.toml
 CLI := cargo run --manifest-path $(CARGO_MANIFEST) -p oniris-cli --
+PYTHON ?= python3
 
-.PHONY: all test fmt fmt-check clippy packs render android-native android clean
+.PHONY: all test fmt fmt-check clippy packs qa render android-native android clean
 
 all: fmt-check clippy test
 
@@ -19,6 +20,10 @@ clippy:
 
 packs:
 	$(CLI) gen-test-packs packs
+
+# Regenerate the procedural packs, then run them through the audio QA gate.
+qa: packs
+	$(PYTHON) tools/audio-qa/measure.py --check packs/*/audio/*.wav
 
 render:
 	$(CLI) render --pack packs/test-rain --pack packs/test-fire --minutes 10 --out oniris-render.wav
