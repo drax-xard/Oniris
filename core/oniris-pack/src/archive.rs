@@ -61,10 +61,15 @@ pub fn pack_dir(dir: &Path, output: &Path) -> Result<ArchiveInfo, PackError> {
     for asset in manifest.asset_paths() {
         entries.insert(asset.to_string());
     }
-    for optional in ["LICENSE", "README.md"] {
-        if dir.join(optional).is_file() {
-            entries.insert(optional.to_string());
+    // docs/LICENSING.md: every pack directory carries a LICENSE and a README.
+    // Refusing here means an archive can never ship without the paperwork.
+    for required in ["LICENSE", "README.md"] {
+        if !dir.join(required).is_file() {
+            return Err(PackError::Validation(format!(
+                "pack is missing {required}; see docs/LICENSING.md"
+            )));
         }
+        entries.insert(required.to_string());
     }
 
     let mut total = 0u64;
@@ -507,6 +512,19 @@ mod tests {
             zip.write_all(data).unwrap();
         }
         zip.finish().unwrap();
+    }
+
+    #[test]
+    fn refuses_a_pack_without_its_license() {
+        let source = tempfile::tempdir().unwrap();
+        make_pack(source.path());
+        std::fs::remove_file(source.path().join("LICENSE")).unwrap();
+        let output = tempfile::tempdir().unwrap();
+        let error = pack_dir(source.path(), &output.path().join("x.onirispack")).unwrap_err();
+        assert!(
+            error.to_string().contains("missing LICENSE"),
+            "unexpected error: {error}"
+        );
     }
 
     #[test]
