@@ -27,7 +27,33 @@ Rules:
   possible; CC-BY requires attribution in the app.
 - Art is optional; 512×512 WebP is the target.
 
+## Distribution archive (`.onirispack`)
+
+A `.onirispack` is a zip whose root contains `manifest.json`, the referenced
+`audio/` and `art/` files, and optional `LICENSE`/`README.md`. Directory entries
+are allowed. Symlinks, encryption, absolute paths, `..` segments, backslashes,
+duplicate names, reserved characters, and unsupported file types are rejected.
+
+Archives are deterministic: entries are sorted and timestamps are fixed, so
+packing the same directory twice produces the same SHA-256. The CLI prints the
+digest for release manifests and download verification.
+
+```bash
+oniris pack packs/test-rain test-rain.onirispack
+oniris verify-pack test-rain.onirispack --sha256 <hex>
+oniris unpack test-rain.onirispack /tmp/test-rain
+```
+
+Import limits: 128 entries, 64 MiB per entry, 512 MiB total uncompressed, and a
+256 KiB manifest. Extraction happens in a temporary directory and is renamed
+into place only after the whole archive validates.
+
 ## Manifest (schema version 1)
+
+The machine-readable Draft 2020-12 schema is
+[`manifest.schema.json`](manifest.schema.json). `oniris validate` and the
+Android importer apply the stricter Rust checks (safe paths, files, decode,
+loop bounds, memory budget).
 
 ```json
 {
@@ -65,6 +91,16 @@ Rules:
       "maxVoices": 1
     }
   ],
+  "credits": [
+    {
+      "asset": "audio/rain.opus",
+      "title": "Rain",
+      "author": "Example Recordist",
+      "source": "https://example.com/rain",
+      "license": "CC-BY-4.0",
+      "modified": true
+    }
+  ],
   "compatibility": { "excludes": [] }
 }
 ```
@@ -86,13 +122,15 @@ Rules:
 | `beds` | yes | 1–2 beds. |
 | `events` | no | Up to 16 event types. |
 | `compatibility` | no | `excludes` lists pack IDs that should not be mixed. |
+| `credits` | no | Up to 64 attribution entries; see “Credit fields”. |
+| `procedural` | no | `true` when every audible asset is synthesized. Used by the app's procedural-only filter. |
 
 ### Bed fields
 
 | Field | Required | Notes |
 |---|---|---|
 | `id` | yes | Unique within the pack. |
-| `file` | yes | Safe relative path. Ogg Opus (`.opus`/`.ogg`/`.oga`) or WAV. |
+| `file` | yes | Safe relative path. Ogg/Opus in production; WAV is a test/fallback format. |
 | `loop.startSample` | yes | Source-rate sample index; inclusive. |
 | `loop.endSample` | yes | Source-rate sample index; exclusive. Loop length 1 s–10 min. |
 | `gainDb` | no | -60..6 dB; default 0. |
@@ -122,6 +160,24 @@ Events are scheduled independently per active pack. The engine picks a variant,
 gain, and pan uniformly within the ranges. Use wider pan ranges for small,
 localized sounds and narrow ranges for thunder/rumble.
 
+### Credit fields
+
+Required for CC BY assets; useful for CC0 and public-domain sources too.
+
+| Field | Required | Notes |
+|---|---|---|
+| `asset` | no | Safe relative path of an asset referenced by the manifest. Omit for a pack-level credit. |
+| `title` | yes | Original recording or work title. |
+| `author` | yes | Recordist, creator, or organization. |
+| `source` | no | URL of the source page, or `synthetic` for generated audio. |
+| `license` | yes | SPDX identifier (`CC0-1.0`, `CC-BY-4.0`) or `Public Domain`. |
+| `modified` | no | `true` if trimmed, looped, EQ'd, normalized, or re-encoded. |
+
+If any asset is CC BY, the pack-level `license` should be the most restrictive
+license in the pack and every CC BY asset must appear in `credits`. The app shows
+these entries on its licenses screen; `oniris credits <pack>` prints them for
+review.
+
 ## Audio format
 
 **Production target:** Opus in Ogg, 48 kHz.
@@ -130,16 +186,18 @@ localized sounds and narrow ranges for thunder/rumble.
 - Events: mono or stereo, 64 kbps, 20 ms frames.
 - Source masters: 48 kHz, 24-bit WAV, archived outside the app repository.
 - Loudness: beds normalized to -23 LUFS integrated; events balanced relative to
-  the bed; true peak ≤ -1.5 dBTP.
+  the bed; true peak ≤ -1.5 dBTP. Measure with `oniris loudness` (BS.1770
+  integrated + 4x true peak) and apply gain with `oniris normalize`.
 
-**Engine support:** Ogg Opus and WAV both decode at load. `decode_audio()` routes
-`.opus`/`.ogg`/`.oga` through the Opus decoder, which honours `pre-skip` and the
-final granule position, so encoder padding never becomes audible and loop points
-line up with the source. WAV is for generated/dev packs only — do not ship
-production content as WAV.
+**Current decoder:** Ogg/Opus is the production path; `.opus` and `.ogg` files
+are decoded natively. WAV remains supported for lossless tests and debugging.
+Both formats pass through `decode_audio()`, which normalizes channels and
+applies any required resampling once at load time.
 
-Opus always decodes at 48 kHz, so `loop.startSample`/`endSample` in an Opus pack
-are 48 kHz indices; the loader scales them if the engine runs at another rate.
+For Opus, loop points are expressed at 48 kHz. The decoder applies the RFC 7845
+pre-skip and end-trim, so a gapless file's decoded frame count matches the
+samples that were encoded. `oniris-cli encode-opus` writes such files. Do not
+ship production content as WAV.
 
 ## Safety and validation
 
@@ -153,8 +211,10 @@ The loader must:
 - Treat audio and JSON as untrusted input.
 
 `cargo run -p oniris-cli -- validate <dir>` performs structural, path, and decode
-validation. Add a zip extractor with the same rules before supporting
-`.onirispack` imports.
+validation for both WAV and Ogg/Opus assets. `pack`, `verify-pack`, and `unpack`
+apply the same rules to `.onirispack` archives. The Android importer calls the
+same Rust `install_archive`/`unpack_archive` path via JNI, then decodes the pack
+once with a throwaway engine before publishing it to the library.
 
 ## Authoring checklist
 

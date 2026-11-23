@@ -15,23 +15,19 @@ default-members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.85"
-
-# The generator tests synthesise ~50 s of 48 kHz audio; unoptimised DSP is slow
-# enough to make the suite painful.
-[profile.test]
-opt-level = 2
+rust-version = "1.88"
 
 [workspace.dependencies]
 anyhow = "1"
 clap = { version = "4.5", features = ["derive"] }
 hound = "3.5"
 jni = "0.21"
-ogg = "0.9"
-opus-decoder = "0.1"
+opus-pure = "0.2"
 rand = "0.8"
 rand_chacha = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.11"
 tempfile = "3"
 thiserror = "2"
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }

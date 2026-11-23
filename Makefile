@@ -2,7 +2,7 @@ CARGO_MANIFEST := core/Cargo.toml
 CLI := cargo run --manifest-path $(CARGO_MANIFEST) -p oniris-cli --
 PYTHON ?= python3
 
-.PHONY: all test fmt fmt-check clippy packs qa render android-native android clean
+.PHONY: all test fmt fmt-check clippy packs packs-wav noise procedural pack qa render android-native android-packs android beta clean
 
 all: fmt-check clippy test
 
@@ -21,9 +21,24 @@ clippy:
 packs:
 	$(CLI) gen-test-packs packs
 
-# Regenerate the procedural packs, then run them through the audio QA gate.
-qa: packs
-	$(PYTHON) tools/audio-qa/measure.py --check packs/*/audio/*.wav
+packs-wav:
+	$(CLI) gen-test-packs packs-wav --format wav
+
+noise:
+	$(CLI) gen-noise-pack packs
+
+procedural:
+	$(CLI) gen-procedural-packs packs
+
+pack: packs
+	$(CLI) pack packs/test-rain test-rain.onirispack
+	$(CLI) verify-pack test-rain.onirispack
+
+# Regenerate the procedural packs as WAV (same synthesis as the Opus build) and
+# run them through the audio QA gate: loudness, true peak, band balance, loop
+# seams.
+qa: packs-wav
+	$(PYTHON) tools/audio-qa/measure.py --check packs-wav/*/audio/*.wav
 
 render:
 	$(CLI) render --pack packs/test-rain --pack packs/test-fire --minutes 10 --out oniris-render.wav
@@ -34,8 +49,14 @@ android-native:
 		-o ../android/app/src/main/jniLibs \
 		build -p oniris-jni --release
 
-android: android-native
+android-packs:
+	./scripts/bundle-android-packs.sh
+
+android: android-native android-packs
 	cd android && ./gradlew :app:assembleDebug
+
+beta:
+	./scripts/build-beta-apk.sh
 
 clean:
 	cargo clean --manifest-path $(CARGO_MANIFEST)

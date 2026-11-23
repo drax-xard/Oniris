@@ -41,11 +41,76 @@ jobs:
       - name: Test
         run: cargo test --manifest-path core/Cargo.toml --workspace
 
-      - name: Render a short mix
+      - name: Render short Opus and WAV mixes
         run: |
-          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- gen-test-packs /tmp/packs
-          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- validate /tmp/packs/test-rain
+          # Production path: synthetic packs encoded as Ogg/Opus by default.
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- gen-test-packs /tmp/packs-opus
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- validate /tmp/packs-opus/test-rain
           cargo run --manifest-path core/Cargo.toml -p oniris-cli -- render \
-            --pack /tmp/packs/test-rain --pack /tmp/packs/test-fire \
-            --minutes 0.25 --out /tmp/oniris.wav --fade-in 0.5
-          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- analyze /tmp/oniris.wav
+            --pack /tmp/packs-opus/test-rain --pack /tmp/packs-opus/test-fire \
+            --minutes 0.25 --out /tmp/oniris-opus.wav --fade-in 0.5
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- analyze /tmp/oniris-opus.wav
+
+          # Keep the lossless fallback and the standalone encoder covered too.
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            gen-test-packs /tmp/packs-wav --format wav
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            encode-opus /tmp/packs-wav/test-rain/audio/rain.wav /tmp/rain.opus
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- validate /tmp/packs-wav/test-rain
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- render \
+            --pack /tmp/packs-wav/test-rain --pack /tmp/packs-wav/test-fire \
+            --minutes 0.25 --out /tmp/oniris-wav.wav --fade-in 0.5
+
+      - name: Generate procedural packs
+        run: |
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            gen-procedural-packs /tmp/packs-opus
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            validate /tmp/packs-opus/pure-noise
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            validate /tmp/packs-opus/rainy-night-procedural
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            validate /tmp/packs-opus/deep-space-cabin
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            validate /tmp/packs-opus/enchanted-forest
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            validate /tmp/packs-opus/windy-sea-voyage
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            credits /tmp/packs-opus/rainy-night-procedural
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            credits /tmp/packs-opus/deep-space-cabin
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            credits /tmp/packs-opus/enchanted-forest
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            credits /tmp/packs-opus/windy-sea-voyage
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- render \
+            --pack /tmp/packs-opus/rainy-night-procedural \
+            --minutes 0.25 --out /tmp/oniris-procedural.wav --fade-in 0.5
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            analyze /tmp/oniris-procedural.wav
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- render \
+            --pack /tmp/packs-opus/windy-sea-voyage \
+            --minutes 0.25 --out /tmp/oniris-sea.wav --fade-in 0.5
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            analyze /tmp/oniris-sea.wav
+
+      - name: Measure and normalize loudness
+        run: |
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            loudness /tmp/packs-opus/test-rain/audio/rain.opus
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            normalize /tmp/packs-opus/test-rain/audio/rain.opus \
+            /tmp/rain-normalized.wav --target-lufs -23 --true-peak -1.5
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            loudness /tmp/rain-normalized.wav
+
+      - name: Package and unpack an archive
+        run: |
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            pack /tmp/packs-opus/test-rain /tmp/test-rain.onirispack
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            verify-pack /tmp/test-rain.onirispack
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            unpack /tmp/test-rain.onirispack /tmp/test-rain-unpacked
+          cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
+            validate /tmp/test-rain-unpacked

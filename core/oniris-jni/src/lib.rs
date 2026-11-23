@@ -8,9 +8,46 @@ use std::path::Path;
 use std::time::Duration;
 
 use jni::objects::{JByteBuffer, JObject, JString};
-use jni::sys::{jboolean, jint, jlong};
+use jni::sys::{jboolean, jint, jlong, jstring};
 use jni::JNIEnv;
 use oniris_core::{Engine, MixSpec};
+use oniris_pack::install_archive;
+
+#[no_mangle]
+pub extern "system" fn Java_dev_oniris_data_NativePack_nativeInstallArchive(
+    mut env: JNIEnv,
+    _this: JObject,
+    archive_path: JString,
+    packs_dir: JString,
+) -> jstring {
+    let archive: String = match env.get_string(&archive_path) {
+        Ok(value) => value.into(),
+        Err(error) => return fail_string(&mut env, format!("invalid archive path: {error}")),
+    };
+    let packs_dir: String = match env.get_string(&packs_dir) {
+        Ok(value) => value.into(),
+        Err(error) => return fail_string(&mut env, format!("invalid packs directory: {error}")),
+    };
+
+    let installed = match install_archive(Path::new(&archive), Path::new(&packs_dir)) {
+        Ok(value) => value,
+        Err(error) => return fail_string(&mut env, error.to_string()),
+    };
+
+    // The archive checks the manifest and file presence; decoding with a real
+    // engine also validates loop bounds, codecs, and the memory budget. Remove
+    // the published directory if the audio is unusable.
+    let mut engine = Engine::new(48_000);
+    if let Err(error) = engine.load_pack(&installed.directory) {
+        let _ = std::fs::remove_dir_all(&installed.directory);
+        return fail_string(&mut env, format!("invalid pack audio: {error}"));
+    }
+
+    match env.new_string(&installed.info.manifest.id) {
+        Ok(id) => id.into_raw(),
+        Err(error) => fail_string(&mut env, format!("could not return the pack id: {error}")),
+    }
+}
 
 #[no_mangle]
 pub extern "system" fn Java_dev_oniris_audio_NativeEngine_nativeCreate(
@@ -86,7 +123,7 @@ pub extern "system" fn Java_dev_oniris_audio_NativeEngine_nativeSetPackGain(
     _this: JObject,
     handle: jlong,
     id: JString,
-    gain_db: f32,
+    gain: f32,
 ) -> jint {
     let Some(engine) = engine_mut(handle) else {
         return fail(&mut env, "invalid engine handle", -1);
@@ -96,7 +133,7 @@ pub extern "system" fn Java_dev_oniris_audio_NativeEngine_nativeSetPackGain(
         Err(error) => return fail(&mut env, format!("invalid pack id: {error}"), -2),
     };
 
-    match engine.set_pack_gain_db(&id, gain_db) {
+    match engine.set_pack_gain(&id, gain) {
         Ok(()) => 0,
         Err(error) => fail(&mut env, error.to_string(), -3),
     }
@@ -160,6 +197,18 @@ pub extern "system" fn Java_dev_oniris_audio_NativeEngine_nativeSetSleepTimer(
             Duration::from_millis(duration_ms.max(0) as u64),
             Duration::from_millis(fade_ms.max(0) as u64),
         );
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_dev_oniris_audio_NativeEngine_nativeSetFadeIn(
+    _env: JNIEnv,
+    _this: JObject,
+    handle: jlong,
+    duration_ms: jlong,
+) {
+    if let Some(engine) = engine_mut(handle) {
+        engine.set_fade_in(Duration::from_millis(duration_ms.max(0) as u64));
     }
 }
 
@@ -228,6 +277,17 @@ pub extern "system" fn Java_dev_oniris_audio_NativeEngine_nativeIsFinished(
 }
 
 #[no_mangle]
+pub extern "system" fn Java_dev_oniris_audio_NativeEngine_nativeIsPaused(
+    _env: JNIEnv,
+    _this: JObject,
+    handle: jlong,
+) -> jboolean {
+    engine_mut(handle)
+        .map(|engine| engine.is_paused() as jboolean)
+        .unwrap_or(0)
+}
+
+#[no_mangle]
 pub extern "system" fn Java_dev_oniris_audio_NativeEngine_nativeDecodedBytes(
     _env: JNIEnv,
     _this: JObject,
@@ -252,4 +312,9 @@ fn engine_mut(handle: jlong) -> Option<&'static mut Engine> {
 fn fail(env: &mut JNIEnv, message: impl AsRef<str>, code: jint) -> jint {
     let _ = env.throw_new("java/lang/RuntimeException", message.as_ref());
     code
+}
+
+fn fail_string(env: &mut JNIEnv, message: impl AsRef<str>) -> jstring {
+    let _ = env.throw_new("java/lang/RuntimeException", message.as_ref());
+    std::ptr::null_mut()
 }

@@ -1,458 +1,1835 @@
-//! Procedural pack generation.
+//! Synthetic test-pack generation.
 //!
-//! These are development packs, but they follow the rules launch content will
-//! follow: layered sources instead of raw white noise, band-limited transients,
-//! no subsonic waste, whole-cycle modulation inside the loop, and measured
-//! loudness / true peak written into the manifest.
-//!
-//! Quality targets live in `docs/PACK_QUALITY_REVIEW.md` and are asserted by the
-//! test at the bottom of this file.
+//! These are deliberately simple and deterministic. They are not launch
+//! content; they exist so the mixer, loop points, and event scheduler can be
+//! exercised without shipping binary audio in the repository.
 
-use std::f32::consts::PI;
+use std::f32::consts::{PI, TAU};
 use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use clap::ValueEnum;
 use hound::{WavSpec, WavWriter};
 use oniris_pack::Manifest;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
-use crate::dsp::{self, db_to_gain, hit_envelope, Biquad, BrownNoise, DcBlocker, PinkNoise};
+use crate::{loudness, opus_encode};
 
-const RATE: u32 = dsp::RATE;
-const RAIN_SECONDS: usize = 45;
-const FIRE_SECONDS: usize = 40;
-const FADE_SECONDS: f32 = 1.5;
+const RATE: u32 = 48_000;
+const NOISE_LOOP_FRAMES: usize = 60 * RATE as usize;
+const NOISE_FADE_FRAMES: usize = 2 * RATE as usize;
+const RAIN_LOOP_FRAMES: usize = 60 * RATE as usize;
+const RAIN_FADE_FRAMES: usize = 2 * RATE as usize;
 
-/// Bed loudness target. Events carry their own target because a thunderclap
-/// needs peak headroom a steady bed does not.
-const BED_LUFS: f32 = -23.0;
-const THUNDER_LUFS: f32 = -20.0;
-const CRACKLE_LUFS: f32 = -20.0;
-const TRUE_PEAK_LIMIT: f32 = -1.5;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum AudioFormat {
+    /// Ogg/Opus, the production format.
+    Opus,
+    /// 16-bit WAV, useful as a lossless fallback and for debugging.
+    Wav,
+}
 
-pub fn generate_test_packs(out: &Path) -> Result<()> {
+impl AudioFormat {
+    fn extension(self) -> &'static str {
+        match self {
+            AudioFormat::Opus => "opus",
+            AudioFormat::Wav => "wav",
+        }
+    }
+}
+
+pub fn generate_test_packs(out: &Path, format: AudioFormat) -> Result<()> {
     fs::create_dir_all(out).with_context(|| format!("failed to create {}", out.display()))?;
 
     let rain_dir = out.join("test-rain");
-    generate_rain(&rain_dir)?;
-    println!("generated {}", rain_dir.display());
+    generate_rain(&rain_dir, format)?;
+    println!("generated {} ({format:?})", rain_dir.display());
 
     let fire_dir = out.join("test-fire");
-    generate_fire(&fire_dir)?;
-    println!("generated {}", fire_dir.display());
+    generate_fire(&fire_dir, format)?;
+    println!("generated {} ({format:?})", fire_dir.display());
 
     Ok(())
 }
 
-fn generate_rain(dir: &Path) -> Result<()> {
+pub fn generate_noise_pack(out: &Path) -> Result<()> {
+    fs::create_dir_all(out).with_context(|| format!("failed to create {}", out.display()))?;
+    let dir = out.join("pure-noise");
+    generate_pure_noise(&dir, NOISE_LOOP_FRAMES, NOISE_FADE_FRAMES)?;
+    println!("generated {}", dir.display());
+    Ok(())
+}
+
+fn generate_pure_noise(dir: &Path, loop_frames: usize, fade_frames: usize) -> Result<()> {
     fs::create_dir_all(dir.join("audio"))?;
-    let frames = RATE as usize * RAIN_SECONDS;
-    let bed = rain_bed(0xA1);
-    write_wav(&dir.join("audio/rain.wav"), 2, &bed)?;
+
+    let pink_source = pink_noise(0x51C0, loop_frames + fade_frames);
+    let brown_source = brown_noise(0xB0B0, loop_frames + fade_frames);
+    let pink = crossfade_loop(&pink_source, loop_frames, fade_frames);
+    let brown = crossfade_loop(&brown_source, loop_frames, fade_frames);
+
+    // Normalize the two-bed sum, not each bed independently, so the pack as
+    // mixed by the engine lands on the -23 LUFS target.
+    let combined = mix_i16(&pink, &brown);
+    let before = loudness::measure(&combined, 2, RATE);
+    if !before.integrated_lufs.is_finite() {
+        anyhow::bail!("generated noise measured as silence");
+    }
+    let gain_db = -23.0 - before.integrated_lufs;
+    let pink = loudness::apply_gain(&pink, gain_db);
+    let brown = loudness::apply_gain(&brown, gain_db);
+    let after = loudness::measure(&mix_i16(&pink, &brown), 2, RATE);
+
+    let pink_file = write_audio(dir, "pink-noise", 2, &pink, AudioFormat::Opus)?;
+    let brown_file = write_audio(dir, "brown-noise", 2, &brown, AudioFormat::Opus)?;
+
+    let true_peak = if after.true_peak_dbtp.is_finite() {
+        (f64::from(after.true_peak_dbtp) * 10.0).round() / 10.0
+    } else {
+        -1.5
+    };
+    let manifest = serde_json::json!({
+        "schemaVersion": 1,
+        "id": "pure-noise",
+        "name": { "en": "Pure Noise" },
+        "description": {
+            "en": "Layered pink and brown noise with a slow, almost imperceptible drift."
+        },
+        "version": "1.0.0",
+        "license": "CC0-1.0",
+        "procedural": true,
+        "tags": ["noise", "sleep", "focus"],
+        "loudnessLufs": -23.0,
+        "truePeakDbtp": true_peak,
+        "beds": [
+            {
+                "id": "pink",
+                "file": &pink_file,
+                "loop": { "startSample": 0, "endSample": loop_frames },
+                "gainDb": 0.0,
+                "lfo": { "target": "gain", "depth": 0.5, "periodSec": 47.0 }
+            },
+            {
+                "id": "brown",
+                "file": &brown_file,
+                "loop": { "startSample": 0, "endSample": loop_frames },
+                "gainDb": 0.0,
+                "lfo": { "target": "gain", "depth": 0.3, "periodSec": 61.0 }
+            }
+        ],
+        "credits": [
+            {
+                "asset": &pink_file,
+                "title": "Pink noise",
+                "author": "Oniris",
+                "source": "synthetic",
+                "license": "CC0-1.0",
+                "modified": false
+            },
+            {
+                "asset": &brown_file,
+                "title": "Brown noise",
+                "author": "Oniris",
+                "source": "synthetic",
+                "license": "CC0-1.0",
+                "modified": false
+            }
+        ]
+    });
+    fs::write(
+        dir.join("manifest.json"),
+        serde_json::to_string_pretty(&manifest)?,
+    )?;
+    Ok(())
+}
+
+fn mix_i16(left: &[i16], right: &[i16]) -> Vec<i16> {
+    left.iter()
+        .zip(right)
+        .map(|(a, b)| (i32::from(*a) + i32::from(*b)).clamp(-32_768, 32_767) as i16)
+        .collect()
+}
+
+fn pink_noise(seed: u64, frames: usize) -> Vec<f32> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut left = [0.0f32; 7];
+    let mut right = [0.0f32; 7];
+    let mut output = Vec::with_capacity(frames * 2);
+
+    for _ in 0..frames {
+        output.push(pink_sample(&mut left, rng.gen_range(-1.0f32..1.0)));
+        output.push(pink_sample(&mut right, rng.gen_range(-1.0f32..1.0)));
+    }
+    output
+}
+
+/// Paul Kellet's refined pink-noise filter.
+fn pink_sample(state: &mut [f32; 7], white: f32) -> f32 {
+    state[0] = 0.99886 * state[0] + white * 0.055_518;
+    state[1] = 0.99332 * state[1] + white * 0.075_076;
+    state[2] = 0.96900 * state[2] + white * 0.153_852;
+    state[3] = 0.86650 * state[3] + white * 0.310_486;
+    state[4] = 0.55000 * state[4] + white * 0.532_952;
+    state[5] = -0.7616 * state[5] - white * 0.016_898;
+    let pink =
+        state[0] + state[1] + state[2] + state[3] + state[4] + state[5] + state[6] + white * 0.5362;
+    state[6] = white * 0.115_926;
+    (pink * 0.11).clamp(-0.9, 0.9)
+}
+
+fn brown_noise(seed: u64, frames: usize) -> Vec<f32> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut left = 0.0f32;
+    let mut right = 0.0f32;
+    let mut output = Vec::with_capacity(frames * 2);
+
+    for _ in 0..frames {
+        left = (left + rng.gen_range(-1.0f32..1.0) * 0.02) * 0.999;
+        right = (right + rng.gen_range(-1.0f32..1.0) * 0.02) * 0.999;
+        output.push(left.clamp(-0.9, 0.9));
+        output.push(right.clamp(-0.9, 0.9));
+    }
+    output
+}
+
+struct ProceduralRecipe {
+    id: &'static str,
+    build: fn(&Path) -> Result<()>,
+}
+
+const PROCEDURAL_RECIPES: &[ProceduralRecipe] = &[
+    ProceduralRecipe {
+        id: "pure-noise",
+        build: generate_noise_pack,
+    },
+    ProceduralRecipe {
+        id: "rainy-night-procedural",
+        build: generate_procedural_rain_pack,
+    },
+    ProceduralRecipe {
+        id: "deep-space-cabin",
+        build: generate_deep_space_pack,
+    },
+    ProceduralRecipe {
+        id: "enchanted-forest",
+        build: generate_enchanted_forest_pack,
+    },
+    ProceduralRecipe {
+        id: "windy-sea-voyage",
+        build: generate_sea_voyage_pack,
+    },
+];
+
+pub fn generate_procedural_packs(out: &Path, only: Option<&str>) -> Result<()> {
+    fs::create_dir_all(out).with_context(|| format!("failed to create {}", out.display()))?;
+    if let Some(id) = only {
+        let recipe = PROCEDURAL_RECIPES
+            .iter()
+            .find(|recipe| recipe.id == id)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "unknown procedural pack {id:?}; available: {}",
+                    PROCEDURAL_RECIPES
+                        .iter()
+                        .map(|recipe| recipe.id)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            })?;
+        (recipe.build)(out)
+    } else {
+        for recipe in PROCEDURAL_RECIPES {
+            (recipe.build)(out)?;
+        }
+        Ok(())
+    }
+}
+
+pub fn generate_procedural_rain_pack(out: &Path) -> Result<()> {
+    fs::create_dir_all(out).with_context(|| format!("failed to create {}", out.display()))?;
+    let dir = out.join("rainy-night-procedural");
+    generate_procedural_rain(&dir, RAIN_LOOP_FRAMES, RAIN_FADE_FRAMES, 5.0, 6, 0.4)?;
+    println!("generated {}", dir.display());
+    Ok(())
+}
+
+fn generate_procedural_rain(
+    dir: &Path,
+    loop_frames: usize,
+    fade_frames: usize,
+    thunder_seconds: f32,
+    drip_count: usize,
+    drip_seconds: f32,
+) -> Result<()> {
+    fs::create_dir_all(dir.join("audio"))?;
+
+    let source = procedural_rain_source(0x7A1, loop_frames + fade_frames);
+    let rain = crossfade_loop(&source, loop_frames, fade_frames);
+    let before = loudness::measure(&rain, 2, RATE);
+    if !before.integrated_lufs.is_finite() {
+        anyhow::bail!("procedural rain measured as silence");
+    }
+    let rain = loudness::apply_gain(&rain, -23.0 - before.integrated_lufs);
+    let after = loudness::measure(&rain, 2, RATE);
+
+    let rain_file = write_audio(dir, "rain", 2, &rain, AudioFormat::Opus)?;
+
+    let thunder_durations = [
+        thunder_seconds,
+        thunder_seconds * 1.2,
+        thunder_seconds * 0.9,
+    ];
+    let mut thunder_files = Vec::with_capacity(thunder_durations.len());
+    let mut credits = vec![serde_json::json!({
+        "asset": &rain_file,
+        "title": "Procedural rain",
+        "author": "Oniris",
+        "source": "synthetic",
+        "license": "CC0-1.0",
+        "modified": false
+    })];
+    for (index, seconds) in thunder_durations.iter().enumerate() {
+        let event = normalize_peak(&thunder(0x7B0 + index as u64, *seconds), -3.0);
+        let name = format!("thunder-{:02}", index + 1);
+        let file = write_audio(dir, &name, 1, &event, AudioFormat::Opus)?;
+        credits.push(serde_json::json!({
+            "asset": &file,
+            "title": name,
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }));
+        thunder_files.push(file);
+    }
+
+    let mut drip_files = Vec::with_capacity(drip_count);
+    for index in 0..drip_count {
+        let event = normalize_peak(&drip_event(0xD81 + index as u64, drip_seconds), -6.0);
+        let name = format!("drip-{:02}", index + 1);
+        let file = write_audio(dir, &name, 1, &event, AudioFormat::Opus)?;
+        credits.push(serde_json::json!({
+            "asset": &file,
+            "title": name,
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }));
+        drip_files.push(file);
+    }
+
+    let true_peak = if after.true_peak_dbtp.is_finite() {
+        (f64::from(after.true_peak_dbtp) * 10.0).round() / 10.0
+    } else {
+        -1.5
+    };
+    let manifest = serde_json::json!({
+        "schemaVersion": 1,
+        "id": "rainy-night-procedural",
+        "name": { "en": "Rainy Night (Synthetic)" },
+        "description": {
+            "en": "A fully synthesized rainstorm with distant thunder and scattered droplets. No recordings."
+        },
+        "version": "1.0.0",
+        "license": "CC0-1.0",
+        "procedural": true,
+        "tags": ["rain", "storm", "night", "procedural"],
+        "loudnessLufs": -23.0,
+        "truePeakDbtp": true_peak,
+        "beds": [{
+            "id": "rain",
+            "file": &rain_file,
+            "loop": { "startSample": 0, "endSample": loop_frames },
+            "gainDb": 0.0,
+            "lfo": { "target": "gain", "depth": 0.5, "periodSec": 37.0 }
+        }],
+        "events": [
+            {
+                "id": "thunder",
+                "files": thunder_files,
+                "minIntervalSec": 18.0,
+                "maxIntervalSec": 45.0,
+                "initialDelaySec": 6.0,
+                "gainDb": [-14.0, -6.0],
+                "pan": [-0.4, 0.4],
+                "fadeInMs": 150,
+                "fadeOutMs": 3000,
+                "maxVoices": 1
+            },
+            {
+                "id": "drips",
+                "files": drip_files,
+                "minIntervalSec": 1.5,
+                "maxIntervalSec": 6.0,
+                "initialDelaySec": 0.5,
+                "gainDb": [-24.0, -12.0],
+                "pan": [-0.8, 0.8],
+                "fadeInMs": 4,
+                "fadeOutMs": 80,
+                "maxVoices": 3
+            }
+        ],
+        "credits": credits
+    });
+    fs::write(
+        dir.join("manifest.json"),
+        serde_json::to_string_pretty(&manifest)?,
+    )?;
+    Ok(())
+}
+
+fn procedural_rain_source(seed: u64, frames: usize) -> Vec<f32> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut output = vec![0.0f32; frames * 2];
+
+    // Rain detail: short, broadband "patter" transients. An earlier version
+    // used dense damped sines between 1.5 and 6 kHz; because they overlapped
+    // almost continuously they read as a chaotic high-pitched shimmer rather
+    // than rain. Exciting a broad band-pass with noise keeps the detail layer
+    // broadband, and lowering the density and pitch keeps it from dominating.
+    let drops = (frames as f32 / RATE as f32 * 50.0) as usize;
+    for _ in 0..drops {
+        let start = rng.gen_range(0..frames.saturating_sub(1));
+        let center = rng.gen_range(600.0f32..2_500.0);
+        let amplitude = rng.gen_range(0.015f32..0.05);
+        let decay = rng.gen_range(0.003f32..0.012);
+        let pan = rng.gen_range(-0.9f32..0.9);
+        let (pan_l, pan_r) = pan_gains(pan);
+        let length = ((decay * 5.0 * RATE as f32) as usize).max(1);
+        let mut filter_l = Biquad::bandpass(center, 1.2);
+        let mut filter_r = Biquad::bandpass(center, 1.2);
+
+        for offset in 0..length {
+            let index = start + offset;
+            if index >= frames {
+                break;
+            }
+            let time = offset as f32 / RATE as f32;
+            let envelope = (-time / decay).exp();
+            let noise_l = filter_l.process(rng.gen_range(-1.0f32..1.0));
+            let noise_r = filter_r.process(rng.gen_range(-1.0f32..1.0));
+            output[index * 2] += noise_l * envelope * amplitude * pan_l;
+            output[index * 2 + 1] += noise_r * envelope * amplitude * pan_r;
+        }
+    }
+
+    // Base bed: pink noise band-limited to roughly 200 Hz - 5 kHz, which is
+    // closer to rain than a flat hiss and much less fatiguing at low volume.
+    // A little low-passed body fills in the bottom end so the result does not
+    // turn into bright hiss.
+    let mut pink_state_l = [0.0f32; 7];
+    let mut pink_state_r = [0.0f32; 7];
+    let mut high_l = Biquad::high_pass(200.0, 0.707);
+    let mut high_r = Biquad::high_pass(200.0, 0.707);
+    let mut low_l = Biquad::low_pass(5_000.0, 0.707);
+    let mut low_r = Biquad::low_pass(5_000.0, 0.707);
+    let mut body_l = Biquad::low_pass(300.0, 0.707);
+    let mut body_r = Biquad::low_pass(300.0, 0.707);
+    for frame in 0..frames {
+        let white_l = rng.gen_range(-1.0f32..1.0);
+        let white_r = rng.gen_range(-1.0f32..1.0);
+        let pink_l = pink_sample(&mut pink_state_l, white_l);
+        let pink_r = pink_sample(&mut pink_state_r, white_r);
+        let hiss_l = low_l.process(high_l.process(pink_l));
+        let hiss_r = low_r.process(high_r.process(pink_r));
+        let swell = 0.85 + 0.15 * (TAU * frame as f32 / (RATE as f32 * 9.0)).sin();
+        output[frame * 2] += (hiss_l * 0.32 + body_l.process(pink_l) * 0.10) * swell;
+        output[frame * 2 + 1] += (hiss_r * 0.32 + body_r.process(pink_r) * 0.10) * swell;
+    }
+
+    for sample in &mut output {
+        *sample = sample.clamp(-0.95, 0.95);
+    }
+    output
+}
+
+/// A water drip: a short bubble-like resonance with a slight upward glide and
+/// a broadband impact transient. A pure sine "ping" sounds synthetic; the
+/// noise and glide read as water.
+fn drip_event(seed: u64, seconds: f32) -> Vec<i16> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let frames = (seconds * RATE as f32) as usize;
+    let center = rng.gen_range(500.0f32..1_500.0);
+    let decay = rng.gen_range(0.020f32..0.070);
+    let rise = rng.gen_range(0.2f32..0.6);
+    let rise_time = (decay * 0.4).max(0.001);
+    let mut texture = Biquad::bandpass(center * 1.4, 3.0);
+    let mut impact_low = Biquad::low_pass(2_500.0, 0.707);
+    let mut output = Vec::with_capacity(frames);
+
+    for frame in 0..frames {
+        let time = frame as f32 / RATE as f32;
+        let envelope = (-time / decay).exp();
+        let glide = 1.0 + rise * (1.0 - (-time / rise_time).exp());
+        let tone = (TAU * center * time * glide).sin();
+        let texture_sample = texture.process(rng.gen_range(-1.0f32..1.0));
+        let impact = if time < 0.003 {
+            impact_low.process(rng.gen_range(-1.0f32..1.0)) * (1.0 - time / 0.003) * 0.35
+        } else {
+            0.0
+        };
+        let sample = (tone * 0.55 + texture_sample * 2.5 + impact) * envelope;
+        output.push((sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16);
+    }
+    output
+}
+
+fn normalize_peak(samples: &[i16], target_dbfs: f32) -> Vec<i16> {
+    let peak = samples
+        .iter()
+        .map(|sample| sample.unsigned_abs())
+        .max()
+        .unwrap_or(0) as f32
+        / i16::MAX as f32;
+    if peak <= 0.0 {
+        return samples.to_vec();
+    }
+    let gain_db = target_dbfs - 20.0 * peak.log10();
+    loudness::apply_gain(samples, gain_db)
+}
+
+fn pan_gains(pan: f32) -> (f32, f32) {
+    let pan = pan.clamp(-1.0, 1.0);
+    if pan < 0.0 {
+        (1.0, 1.0 + pan)
+    } else {
+        (1.0 - pan, 1.0)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Biquad {
+    b0: f32,
+    b1: f32,
+    b2: f32,
+    a1: f32,
+    a2: f32,
+    z1: f32,
+    z2: f32,
+}
+
+impl Biquad {
+    fn bandpass(center: f32, q: f32) -> Self {
+        let w0 = TAU * center / RATE as f32;
+        let alpha = w0.sin() / (2.0 * q);
+        let a0 = 1.0 + alpha;
+        Self {
+            b0: alpha / a0,
+            b1: 0.0,
+            b2: -alpha / a0,
+            a1: (-2.0 * w0.cos()) / a0,
+            a2: (1.0 - alpha) / a0,
+            z1: 0.0,
+            z2: 0.0,
+        }
+    }
+
+    fn low_pass(center: f32, q: f32) -> Self {
+        let w0 = TAU * center / RATE as f32;
+        let alpha = w0.sin() / (2.0 * q);
+        let cos = w0.cos();
+        let a0 = 1.0 + alpha;
+        Self {
+            b0: (1.0 - cos) * 0.5 / a0,
+            b1: (1.0 - cos) / a0,
+            b2: (1.0 - cos) * 0.5 / a0,
+            a1: (-2.0 * cos) / a0,
+            a2: (1.0 - alpha) / a0,
+            z1: 0.0,
+            z2: 0.0,
+        }
+    }
+
+    fn high_pass(center: f32, q: f32) -> Self {
+        let w0 = TAU * center / RATE as f32;
+        let alpha = w0.sin() / (2.0 * q);
+        let cos = w0.cos();
+        let a0 = 1.0 + alpha;
+        Self {
+            b0: (1.0 + cos) * 0.5 / a0,
+            b1: -(1.0 + cos) / a0,
+            b2: (1.0 + cos) * 0.5 / a0,
+            a1: (-2.0 * cos) / a0,
+            a2: (1.0 - alpha) / a0,
+            z1: 0.0,
+            z2: 0.0,
+        }
+    }
+
+    fn process(&mut self, input: f32) -> f32 {
+        let output = self.b0 * input + self.z1;
+        self.z1 = self.b1 * input - self.a1 * output + self.z2;
+        self.z2 = self.b2 * input - self.a2 * output;
+        output
+    }
+}
+
+fn mix_scaled(left: &[i16], right: &[i16], left_gain: f32, right_gain: f32) -> Vec<i16> {
+    left.iter()
+        .zip(right)
+        .map(|(a, b)| {
+            (f32::from(*a) * left_gain + f32::from(*b) * right_gain)
+                .round()
+                .clamp(-32_768.0, 32_767.0) as i16
+        })
+        .collect()
+}
+
+fn normalize_bed_pair(
+    left: &mut Vec<i16>,
+    right: &mut Vec<i16>,
+    left_gain: f32,
+    right_gain: f32,
+) -> Result<loudness::Measurement> {
+    let combined = mix_scaled(left, right, left_gain, right_gain);
+    let before = loudness::measure(&combined, 2, RATE);
+    if !before.integrated_lufs.is_finite() {
+        anyhow::bail!("procedural beds measured as silence");
+    }
+    let gain_db = -23.0 - before.integrated_lufs;
+    *left = loudness::apply_gain(left, gain_db);
+    *right = loudness::apply_gain(right, gain_db);
+    Ok(loudness::measure(
+        &mix_scaled(left, right, left_gain, right_gain),
+        2,
+        RATE,
+    ))
+}
+
+fn db_to_linear(db: f32) -> f32 {
+    10f32.powf(db / 20.0)
+}
+
+pub fn generate_deep_space_pack(out: &Path) -> Result<()> {
+    fs::create_dir_all(out).with_context(|| format!("failed to create {}", out.display()))?;
+    let dir = out.join("deep-space-cabin");
+    generate_deep_space(&dir, 60 * RATE as usize, 2 * RATE as usize)?;
+    println!("generated {}", dir.display());
+    Ok(())
+}
+
+fn generate_deep_space(dir: &Path, loop_frames: usize, fade_frames: usize) -> Result<()> {
+    fs::create_dir_all(dir.join("audio"))?;
+
+    let engine_source = engine_drone(0xE061, loop_frames + fade_frames);
+    let air_source = air_bed(0x41A2, loop_frames + fade_frames);
+    let mut engine = crossfade_loop(&engine_source, loop_frames, fade_frames);
+    let mut air = crossfade_loop(&air_source, loop_frames, fade_frames);
+    let after = normalize_bed_pair(
+        &mut engine,
+        &mut air,
+        db_to_linear(-6.0),
+        db_to_linear(-12.0),
+    )?;
+
+    let engine_file = write_audio(dir, "engine", 2, &engine, AudioFormat::Opus)?;
+    let air_file = write_audio(dir, "air", 2, &air, AudioFormat::Opus)?;
+    let mut credits = vec![
+        serde_json::json!({
+            "asset": &engine_file,
+            "title": "Engine drone",
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }),
+        serde_json::json!({
+            "asset": &air_file,
+            "title": "Air handling",
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }),
+    ];
+
+    let mut beep_files = Vec::new();
+    for (index, (seed, seconds)) in [(0xB01u64, 0.5f32), (0xB02, 0.65), (0xB03, 0.4)]
+        .iter()
+        .enumerate()
+    {
+        let event = normalize_peak(&beep_event(*seed, *seconds), -6.0);
+        let name = format!("beep-{:02}", index + 1);
+        let file = write_audio(dir, &name, 1, &event, AudioFormat::Opus)?;
+        credits.push(serde_json::json!({
+            "asset": &file,
+            "title": name,
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }));
+        beep_files.push(file);
+    }
+
+    let mut creak_files = Vec::new();
+    for (index, (seed, seconds)) in [(0xC01u64, 1.2f32), (0xC02, 1.5), (0xC03, 0.9)]
+        .iter()
+        .enumerate()
+    {
+        let event = normalize_peak(&creak_event(*seed, *seconds), -3.0);
+        let name = format!("creak-{:02}", index + 1);
+        let file = write_audio(dir, &name, 1, &event, AudioFormat::Opus)?;
+        credits.push(serde_json::json!({
+            "asset": &file,
+            "title": name,
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }));
+        creak_files.push(file);
+    }
+
+    let mut airlock_files = Vec::new();
+    for (index, (seed, seconds)) in [(0xA01u64, 1.0f32), (0xA02, 1.4)].iter().enumerate() {
+        let event = normalize_peak(&airlock_event(*seed, *seconds), -3.0);
+        let name = format!("airlock-{:02}", index + 1);
+        let file = write_audio(dir, &name, 1, &event, AudioFormat::Opus)?;
+        credits.push(serde_json::json!({
+            "asset": &file,
+            "title": name,
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }));
+        airlock_files.push(file);
+    }
+
+    let true_peak = rounded_db(after.true_peak_dbtp);
+    let manifest = serde_json::json!({
+        "schemaVersion": 1,
+        "id": "deep-space-cabin",
+        "name": { "en": "Deep Space Cabin" },
+        "description": {
+            "en": "A quiet habitat drifting between stars: low engine hum, air handling, and rare soft system tones."
+        },
+        "version": "1.0.0",
+        "license": "CC0-1.0",
+        "procedural": true,
+        "tags": ["space", "scifi", "drone", "procedural"],
+        "loudnessLufs": -23.0,
+        "truePeakDbtp": true_peak,
+        "beds": [
+            {
+                "id": "engine",
+                "file": &engine_file,
+                "loop": { "startSample": 0, "endSample": loop_frames },
+                "gainDb": -6.0,
+                "lfo": { "target": "gain", "depth": 0.4, "periodSec": 61.0 }
+            },
+            {
+                "id": "air",
+                "file": &air_file,
+                "loop": { "startSample": 0, "endSample": loop_frames },
+                "gainDb": -12.0,
+                "pan": 0.15,
+                "lfo": { "target": "pan", "depth": 0.2, "periodSec": 43.0 }
+            }
+        ],
+        "events": [
+            {
+                "id": "beep",
+                "files": beep_files,
+                "minIntervalSec": 30.0,
+                "maxIntervalSec": 90.0,
+                "initialDelaySec": 12.0,
+                "gainDb": [-18.0, -12.0],
+                "pan": [-0.3, 0.3],
+                "fadeInMs": 30,
+                "fadeOutMs": 300,
+                "maxVoices": 1
+            },
+            {
+                "id": "creak",
+                "files": creak_files,
+                "minIntervalSec": 20.0,
+                "maxIntervalSec": 70.0,
+                "initialDelaySec": 8.0,
+                "gainDb": [-20.0, -12.0],
+                "pan": [-0.6, 0.6],
+                "fadeInMs": 200,
+                "fadeOutMs": 800,
+                "maxVoices": 1
+            },
+            {
+                "id": "airlock",
+                "files": airlock_files,
+                "minIntervalSec": 60.0,
+                "maxIntervalSec": 180.0,
+                "initialDelaySec": 30.0,
+                "gainDb": [-22.0, -16.0],
+                "pan": [-0.4, 0.4],
+                "fadeInMs": 100,
+                "fadeOutMs": 1200,
+                "maxVoices": 1
+            }
+        ],
+        "credits": credits
+    });
+    fs::write(
+        dir.join("manifest.json"),
+        serde_json::to_string_pretty(&manifest)?,
+    )?;
+    Ok(())
+}
+
+pub fn generate_enchanted_forest_pack(out: &Path) -> Result<()> {
+    fs::create_dir_all(out).with_context(|| format!("failed to create {}", out.display()))?;
+    let dir = out.join("enchanted-forest");
+    generate_enchanted_forest(&dir, 60 * RATE as usize, 2 * RATE as usize)?;
+    println!("generated {}", dir.display());
+    Ok(())
+}
+
+fn generate_enchanted_forest(dir: &Path, loop_frames: usize, fade_frames: usize) -> Result<()> {
+    fs::create_dir_all(dir.join("audio"))?;
+
+    let wind_source = wind_bed(0xF03E, loop_frames + fade_frames);
+    let brook_source = brook_bed(0xB20A, loop_frames + fade_frames);
+    let mut wind = crossfade_loop(&wind_source, loop_frames, fade_frames);
+    let mut brook = crossfade_loop(&brook_source, loop_frames, fade_frames);
+    let after = normalize_bed_pair(
+        &mut wind,
+        &mut brook,
+        db_to_linear(-8.0),
+        db_to_linear(-12.0),
+    )?;
+
+    let wind_file = write_audio(dir, "wind", 2, &wind, AudioFormat::Opus)?;
+    let brook_file = write_audio(dir, "brook", 2, &brook, AudioFormat::Opus)?;
+    let mut credits = vec![
+        serde_json::json!({
+            "asset": &wind_file,
+            "title": "Forest wind",
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }),
+        serde_json::json!({
+            "asset": &brook_file,
+            "title": "Forest brook",
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }),
+    ];
+
+    let mut chime_files = Vec::new();
+    for index in 0..4u64 {
+        let event = normalize_peak(&chime_event(0x51A0 + index, 2.5), -6.0);
+        let name = format!("chime-{:02}", index + 1);
+        let file = write_audio(dir, &name, 1, &event, AudioFormat::Opus)?;
+        credits.push(serde_json::json!({
+            "asset": &file,
+            "title": name,
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }));
+        chime_files.push(file);
+    }
+
+    let mut owl_files = Vec::new();
+    for index in 0..2u64 {
+        let event = normalize_peak(&owl_event(0x0A11 + index, 1.8), -6.0);
+        let name = format!("owl-{:02}", index + 1);
+        let file = write_audio(dir, &name, 1, &event, AudioFormat::Opus)?;
+        credits.push(serde_json::json!({
+            "asset": &file,
+            "title": name,
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }));
+        owl_files.push(file);
+    }
+
+    let mut rustle_files = Vec::new();
+    for index in 0..3u64 {
+        let event = normalize_peak(&rustle_event(0x2E50 + index, 1.0), -6.0);
+        let name = format!("rustle-{:02}", index + 1);
+        let file = write_audio(dir, &name, 1, &event, AudioFormat::Opus)?;
+        credits.push(serde_json::json!({
+            "asset": &file,
+            "title": name,
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }));
+        rustle_files.push(file);
+    }
+
+    let true_peak = rounded_db(after.true_peak_dbtp);
+    let manifest = serde_json::json!({
+        "schemaVersion": 1,
+        "id": "enchanted-forest",
+        "name": { "en": "Enchanted Forest" },
+        "description": {
+            "en": "A moonlit forest with soft wind, a hidden brook, distant owls, and rare chimes."
+        },
+        "version": "1.0.0",
+        "license": "CC0-1.0",
+        "procedural": true,
+        "tags": ["forest", "fantasy", "magic", "procedural"],
+        "loudnessLufs": -23.0,
+        "truePeakDbtp": true_peak,
+        "beds": [
+            {
+                "id": "wind",
+                "file": &wind_file,
+                "loop": { "startSample": 0, "endSample": loop_frames },
+                "gainDb": -8.0,
+                "lfo": { "target": "gain", "depth": 0.8, "periodSec": 53.0 }
+            },
+            {
+                "id": "brook",
+                "file": &brook_file,
+                "loop": { "startSample": 0, "endSample": loop_frames },
+                "gainDb": -12.0,
+                "pan": -0.2
+            }
+        ],
+        "events": [
+            {
+                "id": "chime",
+                "files": chime_files,
+                "minIntervalSec": 20.0,
+                "maxIntervalSec": 60.0,
+                "initialDelaySec": 10.0,
+                "gainDb": [-20.0, -14.0],
+                "pan": [-0.7, 0.7],
+                "fadeInMs": 20,
+                "fadeOutMs": 1500,
+                "maxVoices": 1
+            },
+            {
+                "id": "owl",
+                "files": owl_files,
+                "minIntervalSec": 40.0,
+                "maxIntervalSec": 120.0,
+                "initialDelaySec": 25.0,
+                "gainDb": [-20.0, -14.0],
+                "pan": [-0.5, 0.5],
+                "fadeInMs": 100,
+                "fadeOutMs": 600,
+                "maxVoices": 1
+            },
+            {
+                "id": "rustle",
+                "files": rustle_files,
+                "minIntervalSec": 15.0,
+                "maxIntervalSec": 50.0,
+                "initialDelaySec": 5.0,
+                "gainDb": [-24.0, -18.0],
+                "pan": [-0.8, 0.8],
+                "fadeInMs": 10,
+                "fadeOutMs": 400,
+                "maxVoices": 2
+            }
+        ],
+        "credits": credits
+    });
+    fs::write(
+        dir.join("manifest.json"),
+        serde_json::to_string_pretty(&manifest)?,
+    )?;
+    Ok(())
+}
+
+pub fn generate_sea_voyage_pack(out: &Path) -> Result<()> {
+    fs::create_dir_all(out).with_context(|| format!("failed to create {}", out.display()))?;
+    let dir = out.join("windy-sea-voyage");
+    generate_sea_voyage(&dir, 60 * RATE as usize, 2 * RATE as usize)?;
+    println!("generated {}", dir.display());
+    Ok(())
+}
+
+fn generate_sea_voyage(dir: &Path, loop_frames: usize, fade_frames: usize) -> Result<()> {
+    fs::create_dir_all(dir.join("audio"))?;
+
+    let wind_source = sea_wind_bed(0x5EA1, loop_frames + fade_frames);
+    let sea_source = sea_swell_bed(0x5EA2, loop_frames + fade_frames);
+    let mut wind = crossfade_loop(&wind_source, loop_frames, fade_frames);
+    let mut sea = crossfade_loop(&sea_source, loop_frames, fade_frames);
+    let after = normalize_bed_pair(&mut wind, &mut sea, db_to_linear(-6.0), db_to_linear(-10.0))?;
+
+    let wind_file = write_audio(dir, "wind", 2, &wind, AudioFormat::Opus)?;
+    let sea_file = write_audio(dir, "sea", 2, &sea, AudioFormat::Opus)?;
+    let mut credits = vec![
+        serde_json::json!({
+            "asset": &wind_file,
+            "title": "Sea wind",
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }),
+        serde_json::json!({
+            "asset": &sea_file,
+            "title": "Ocean swell",
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }),
+    ];
+
+    let mut creak_files = Vec::new();
+    for (index, (seed, seconds)) in [(0x5C01u64, 1.8f32), (0x5C02, 2.3), (0x5C03, 1.5)]
+        .iter()
+        .enumerate()
+    {
+        let event = normalize_peak(&creak_event(*seed, *seconds), -4.0);
+        let name = format!("creak-{:02}", index + 1);
+        let file = write_audio(dir, &name, 1, &event, AudioFormat::Opus)?;
+        credits.push(serde_json::json!({
+            "asset": &file,
+            "title": name,
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }));
+        creak_files.push(file);
+    }
+
+    let mut splash_files = Vec::new();
+    for (index, (seed, seconds)) in [(0x5D01u64, 2.4f32), (0x5D02, 1.8), (0x5D03, 2.8)]
+        .iter()
+        .enumerate()
+    {
+        let event = normalize_peak(&splash_event(*seed, *seconds), -4.0);
+        let name = format!("splash-{:02}", index + 1);
+        let file = write_audio(dir, &name, 1, &event, AudioFormat::Opus)?;
+        credits.push(serde_json::json!({
+            "asset": &file,
+            "title": name,
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }));
+        splash_files.push(file);
+    }
+
+    let mut bell_files = Vec::new();
+    for (index, (seed, seconds)) in [(0x5B01u64, 5.0f32), (0x5B02, 4.2)].iter().enumerate() {
+        let event = normalize_peak(&ship_bell_event(*seed, *seconds), -6.0);
+        let name = format!("bell-{:02}", index + 1);
+        let file = write_audio(dir, &name, 1, &event, AudioFormat::Opus)?;
+        credits.push(serde_json::json!({
+            "asset": &file,
+            "title": name,
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }));
+        bell_files.push(file);
+    }
+
+    let true_peak = rounded_db(after.true_peak_dbtp);
+    let manifest = serde_json::json!({
+        "schemaVersion": 1,
+        "id": "windy-sea-voyage",
+        "name": { "en": "Windy Sea Voyage" },
+        "description": {
+            "en": "A small ship crossing a night sea: gusting wind in the rigging, long swells against the hull, and the occasional creak of timber."
+        },
+        "version": "1.0.0",
+        "license": "CC0-1.0",
+        "procedural": true,
+        "tags": ["sea", "ocean", "wind", "ship", "procedural"],
+        "loudnessLufs": -23.0,
+        "truePeakDbtp": true_peak,
+        "beds": [
+            {
+                "id": "wind",
+                "file": &wind_file,
+                "loop": { "startSample": 0, "endSample": loop_frames },
+                "gainDb": -6.0,
+                "lfo": { "target": "gain", "depth": 0.9, "periodSec": 53.0 }
+            },
+            {
+                "id": "sea",
+                "file": &sea_file,
+                "loop": { "startSample": 0, "endSample": loop_frames },
+                "gainDb": -10.0,
+                "pan": -0.1,
+                "lfo": { "target": "pan", "depth": 0.12, "periodSec": 41.0 }
+            }
+        ],
+        "events": [
+            {
+                "id": "creak",
+                "files": creak_files,
+                "minIntervalSec": 25.0,
+                "maxIntervalSec": 85.0,
+                "initialDelaySec": 12.0,
+                "gainDb": [-20.0, -13.0],
+                "pan": [-0.6, 0.6],
+                "fadeInMs": 250,
+                "fadeOutMs": 1400,
+                "maxVoices": 1
+            },
+            {
+                "id": "splash",
+                "files": splash_files,
+                "minIntervalSec": 12.0,
+                "maxIntervalSec": 40.0,
+                "initialDelaySec": 4.0,
+                "gainDb": [-22.0, -15.0],
+                "pan": [-0.7, 0.7],
+                "fadeInMs": 20,
+                "fadeOutMs": 1200,
+                "maxVoices": 2
+            },
+            {
+                "id": "bell",
+                "files": bell_files,
+                "minIntervalSec": 75.0,
+                "maxIntervalSec": 180.0,
+                "initialDelaySec": 45.0,
+                "gainDb": [-26.0, -20.0],
+                "pan": [-0.5, 0.5],
+                "fadeInMs": 40,
+                "fadeOutMs": 2500,
+                "maxVoices": 1
+            }
+        ],
+        "credits": credits
+    });
+    fs::write(
+        dir.join("manifest.json"),
+        serde_json::to_string_pretty(&manifest)?,
+    )?;
+    Ok(())
+}
+
+fn rounded_db(value: f32) -> f64 {
+    if value.is_finite() {
+        (f64::from(value) * 10.0).round() / 10.0
+    } else {
+        -1.5
+    }
+}
+
+fn engine_drone(seed: u64, frames: usize) -> Vec<f32> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let partials = [
+        (55.0f32, 1.0f32, 0.0008f32),
+        (110.0, 0.50, -0.0006),
+        (165.0, 0.28, 0.0004),
+        (220.0, 0.16, -0.0003),
+        (275.0, 0.09, 0.0002),
+        (330.0, 0.05, -0.0001),
+    ];
+    let phases: Vec<f32> = (0..partials.len())
+        .map(|_| rng.gen_range(0.0..TAU))
+        .collect();
+    let periods: Vec<f32> = (0..partials.len())
+        .map(|_| rng.gen_range(17.0..53.0))
+        .collect();
+    let lfo_phases: Vec<f32> = (0..partials.len())
+        .map(|_| rng.gen_range(0.0..TAU))
+        .collect();
+    let mut lp_l = Biquad::low_pass(420.0, 0.7);
+    let mut lp_r = Biquad::low_pass(420.0, 0.7);
+    let mut output = Vec::with_capacity(frames * 2);
+
+    for frame in 0..frames {
+        let time = frame as f32 / RATE as f32;
+        let mut left = 0.0f32;
+        let mut right = 0.0f32;
+        for (index, (frequency, amplitude, detune)) in partials.iter().enumerate() {
+            let lfo = (TAU * time / periods[index] + lfo_phases[index]).sin();
+            let drift = 1.0 + detune + 0.0006 * lfo;
+            let phase = TAU * frequency * drift * time + phases[index];
+            let gain = amplitude * (0.85 + 0.15 * lfo);
+            left += phase.sin() * gain;
+            right += (phase + 0.04).sin() * gain;
+        }
+        left += rng.gen_range(-1.0f32..1.0) * 0.01;
+        right += rng.gen_range(-1.0f32..1.0) * 0.01;
+        output.push((lp_l.process(left) * 0.45).clamp(-0.9, 0.9));
+        output.push((lp_r.process(right) * 0.45).clamp(-0.9, 0.9));
+    }
+    output
+}
+
+fn air_bed(seed: u64, frames: usize) -> Vec<f32> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut bp_l = Biquad::bandpass(700.0, 0.7);
+    let mut bp_r = Biquad::bandpass(700.0, 0.7);
+    let mut lp_l = Biquad::low_pass(1800.0, 0.7);
+    let mut lp_r = Biquad::low_pass(1800.0, 0.7);
+    let mut rumble_l = Biquad::low_pass(120.0, 0.7);
+    let mut rumble_r = Biquad::low_pass(120.0, 0.7);
+    let mut output = Vec::with_capacity(frames * 2);
+
+    for frame in 0..frames {
+        let time = frame as f32 / RATE as f32;
+        let swell = 0.6 + 0.4 * (0.5 + 0.5 * (TAU * time / 41.0).sin());
+        let white_l = rng.gen_range(-1.0f32..1.0);
+        let white_r = rng.gen_range(-1.0f32..1.0);
+        let air_l = bp_l.process(white_l) * 0.6 + lp_l.process(white_l) * 0.25;
+        let air_r = bp_r.process(white_r) * 0.6 + lp_r.process(white_r) * 0.25;
+        let low_l = rumble_l.process(white_l) * 0.08;
+        let low_r = rumble_r.process(white_r) * 0.08;
+        output.push(((air_l + low_l) * swell * 0.55).clamp(-0.9, 0.9));
+        output.push(((air_r + low_r) * swell * 0.55).clamp(-0.9, 0.9));
+    }
+    output
+}
+
+fn beep_event(seed: u64, seconds: f32) -> Vec<i16> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let frames = (seconds * RATE as f32) as usize;
+    let frequency = rng.gen_range(620.0f32..1_180.0);
+    let modulator = frequency * rng.gen_range(1.3f32..2.1);
+    let index = rng.gen_range(0.6f32..2.0);
+    let decay = rng.gen_range(0.08f32..0.22);
+    let mut output = Vec::with_capacity(frames);
+
+    for frame in 0..frames {
+        let time = frame as f32 / RATE as f32;
+        let attack = (time / 0.008).min(1.0);
+        let envelope = attack * (-time / decay).exp();
+        let sample =
+            (TAU * frequency * time + index * (TAU * modulator * time).sin()).sin() * envelope;
+        output.push((sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16);
+    }
+    output
+}
+
+fn creak_event(seed: u64, seconds: f32) -> Vec<i16> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let frames = (seconds * RATE as f32) as usize;
+    let modes: Vec<(f32, f32, f32)> = (0..5)
+        .map(|_| {
+            (
+                rng.gen_range(140.0f32..900.0),
+                rng.gen_range(0.08f32..0.5),
+                rng.gen_range(0.2f32..1.0),
+            )
+        })
+        .collect();
+    let mut lp = Biquad::low_pass(1800.0, 0.7);
+    let mut output = Vec::with_capacity(frames);
+
+    for frame in 0..frames {
+        let time = frame as f32 / RATE as f32;
+        let attack = (time / 0.02).min(1.0);
+        let mut sample = 0.0f32;
+        for (frequency, decay, amplitude) in &modes {
+            let drift = 1.0 + 0.01 * (TAU * 1.7 * time).sin();
+            sample += (TAU * frequency * drift * time).sin() * amplitude * (-time / decay).exp();
+        }
+        if time < 0.02 {
+            sample += rng.gen_range(-1.0f32..1.0) * (1.0 - time / 0.02) * 0.5;
+        }
+        sample = lp.process(sample) * attack * (-time / 0.6).exp() * 0.4;
+        output.push((sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16);
+    }
+    output
+}
+
+fn airlock_event(seed: u64, seconds: f32) -> Vec<i16> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let frames = (seconds * RATE as f32) as usize;
+    let frequency = rng.gen_range(45.0f32..75.0);
+    let decay = rng.gen_range(0.25f32..0.5);
+    let mut lp = Biquad::low_pass(300.0, 0.7);
+    let mut output = Vec::with_capacity(frames);
+
+    for frame in 0..frames {
+        let time = frame as f32 / RATE as f32;
+        let attack = (time / 0.01).min(1.0);
+        let envelope = attack * (-time / decay).exp();
+        let thump = (TAU * frequency * time).sin() * 0.8;
+        let noise = lp.process(rng.gen_range(-1.0f32..1.0)) * 0.3;
+        let sample = (thump + noise) * envelope;
+        output.push((sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16);
+    }
+    output
+}
+
+fn wind_bed(seed: u64, frames: usize) -> Vec<f32> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut lp_l = Biquad::low_pass(1400.0, 0.7);
+    let mut lp_r = Biquad::low_pass(1400.0, 0.7);
+    let mut hp_l = Biquad::high_pass(120.0, 0.7);
+    let mut hp_r = Biquad::high_pass(120.0, 0.7);
+    let mut leaf_l = Biquad::bandpass(650.0, 2.5);
+    let mut leaf_r = Biquad::bandpass(650.0, 2.5);
+    let gust_a = rng.gen_range(0.0..TAU);
+    let gust_b = rng.gen_range(0.0..TAU);
+    let mut output = Vec::with_capacity(frames * 2);
+
+    for frame in 0..frames {
+        let time = frame as f32 / RATE as f32;
+        let gust = 0.55
+            + 0.45
+                * (0.5 + 0.5 * (TAU * time / 43.0 + gust_a).sin())
+                * (0.5 + 0.5 * (TAU * time / 67.0 + gust_b).sin());
+        let white_l = rng.gen_range(-1.0f32..1.0);
+        let white_r = rng.gen_range(-1.0f32..1.0);
+        let body_l = hp_l.process(lp_l.process(white_l));
+        let body_r = hp_r.process(lp_r.process(white_r));
+        let leaf_l_sample = leaf_l.process(white_l) * 0.35;
+        let leaf_r_sample = leaf_r.process(white_r) * 0.35;
+        output.push(((body_l * 0.6 + leaf_l_sample) * gust * 0.5).clamp(-0.9, 0.9));
+        output.push(((body_r * 0.6 + leaf_r_sample) * gust * 0.5).clamp(-0.9, 0.9));
+    }
+    output
+}
+
+fn brook_bed(seed: u64, frames: usize) -> Vec<f32> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut hp_l = Biquad::high_pass(300.0, 0.7);
+    let mut hp_r = Biquad::high_pass(300.0, 0.7);
+    let mut lp_l = Biquad::low_pass(3200.0, 0.7);
+    let mut lp_r = Biquad::low_pass(3200.0, 0.7);
+    let mut output = vec![0.0f32; frames * 2];
+
+    for frame in 0..frames {
+        let white_l = rng.gen_range(-1.0f32..1.0);
+        let white_r = rng.gen_range(-1.0f32..1.0);
+        let body_l = lp_l.process(hp_l.process(white_l));
+        let body_r = lp_r.process(hp_r.process(white_r));
+        output[frame * 2] += body_l * 0.16;
+        output[frame * 2 + 1] += body_r * 0.16;
+    }
+
+    let bubbles = (frames as f32 / RATE as f32 * 8.0) as usize;
+    for _ in 0..bubbles {
+        let start = rng.gen_range(0..frames.saturating_sub(1));
+        let frequency = rng.gen_range(350.0f32..1_200.0);
+        let length = ((rng.gen_range(0.04f32..0.12) * RATE as f32) as usize).max(1);
+        let amplitude = rng.gen_range(0.02f32..0.08);
+        let pan = rng.gen_range(-0.7f32..0.7);
+        let (pan_l, pan_r) = pan_gains(pan);
+
+        for offset in 0..length {
+            let index = start + offset;
+            if index >= frames {
+                break;
+            }
+            let progress = offset as f32 / length as f32;
+            let envelope = (1.0 - progress).powi(2);
+            let pitch = frequency * (1.0 + 0.6 * progress);
+            let sample = (TAU * pitch * offset as f32 / RATE as f32).sin() * envelope * amplitude;
+            output[index * 2] += sample * pan_l;
+            output[index * 2 + 1] += sample * pan_r;
+        }
+    }
+
+    for sample in &mut output {
+        *sample = sample.clamp(-0.95, 0.95);
+    }
+    output
+}
+
+fn sea_wind_bed(seed: u64, frames: usize) -> Vec<f32> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut body_lp_l = Biquad::low_pass(1_400.0, 0.7);
+    let mut body_lp_r = Biquad::low_pass(1_400.0, 0.7);
+    let mut body_hp_l = Biquad::high_pass(180.0, 0.7);
+    let mut body_hp_r = Biquad::high_pass(180.0, 0.7);
+    let mut rig_low_l = Biquad::bandpass(520.0, 3.0);
+    let mut rig_low_r = Biquad::bandpass(520.0, 3.0);
+    let mut rig_high_l = Biquad::bandpass(1_250.0, 4.0);
+    let mut rig_high_r = Biquad::bandpass(1_250.0, 4.0);
+    let mut rumble_l = Biquad::low_pass(110.0, 0.7);
+    let mut rumble_r = Biquad::low_pass(110.0, 0.7);
+    let gust_a = rng.gen_range(0.0..TAU);
+    let gust_b = rng.gen_range(0.0..TAU);
+    let mut output = Vec::with_capacity(frames * 2);
+
+    for frame in 0..frames {
+        let time = frame as f32 / RATE as f32;
+        // Two incommensurate gust cycles keep the wind from pulsing on a
+        // single obvious period.
+        let gust = 0.3
+            + 0.7
+                * (0.5 + 0.5 * (TAU * time / 41.0 + gust_a).sin())
+                * (0.5 + 0.5 * (TAU * time / 67.0 + gust_b).sin());
+        let white_l = rng.gen_range(-1.0f32..1.0);
+        let white_r = rng.gen_range(-1.0f32..1.0);
+        let body_l = body_lp_l.process(body_hp_l.process(white_l));
+        let body_r = body_lp_r.process(body_hp_r.process(white_r));
+        // Narrow resonances suggest rigging and sail edges without becoming
+        // a constant whistle; they only come forward with the gusts.
+        let rig_l = rig_low_l.process(white_l) * 0.6 + rig_high_l.process(white_l) * 0.4;
+        let rig_r = rig_low_r.process(white_r) * 0.6 + rig_high_r.process(white_r) * 0.4;
+        let rumble_l = rumble_l.process(white_l);
+        let rumble_r = rumble_r.process(white_r);
+        let left = (body_l * 0.55 + rig_l * 0.5) * gust + rumble_l * 0.2;
+        let right = (body_r * 0.55 + rig_r * 0.5) * gust + rumble_r * 0.2;
+        output.push((left * 0.85).clamp(-0.9, 0.9));
+        output.push((right * 0.85).clamp(-0.9, 0.9));
+    }
+    output
+}
+
+fn sea_swell_bed(seed: u64, frames: usize) -> Vec<f32> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut rumble_l = Biquad::low_pass(200.0, 0.7);
+    let mut rumble_r = Biquad::low_pass(200.0, 0.7);
+    let mut mid_l = Biquad::bandpass(550.0, 0.7);
+    let mut mid_r = Biquad::bandpass(550.0, 0.7);
+    let mut foam_band_l = Biquad::bandpass(3_200.0, 0.9);
+    let mut foam_band_r = Biquad::bandpass(3_200.0, 0.9);
+    let mut foam_lp_l = Biquad::low_pass(5_500.0, 0.7);
+    let mut foam_lp_r = Biquad::low_pass(5_500.0, 0.7);
+    let phase_a = rng.gen_range(0.0..TAU);
+    let phase_b = rng.gen_range(0.0..TAU);
+    let phase_a_r = rng.gen_range(0.0..TAU);
+    let phase_b_r = rng.gen_range(0.0..TAU);
+    let mut output = Vec::with_capacity(frames * 2);
+
+    for frame in 0..frames {
+        let time = frame as f32 / RATE as f32;
+        // A cubed short cycle gives long troughs and brief crests; a second
+        // slow cycle keeps successive waves from sounding identical.
+        let wave_l = (0.5 + 0.5 * (TAU * time / 10.3 + phase_a).sin()).powi(3);
+        let long_l = (0.5 + 0.5 * (TAU * time / 27.7 + phase_b).sin()).powi(2);
+        let swell_l = 0.25 + 0.75 * (0.65 * wave_l + 0.35 * long_l);
+        let wave_r = (0.5 + 0.5 * (TAU * time / 9.7 + phase_a_r).sin()).powi(3);
+        let long_r = (0.5 + 0.5 * (TAU * time / 25.3 + phase_b_r).sin()).powi(2);
+        let swell_r = 0.25 + 0.75 * (0.65 * wave_r + 0.35 * long_r);
+        let white_l = rng.gen_range(-1.0f32..1.0);
+        let white_r = rng.gen_range(-1.0f32..1.0);
+        let low_l = rumble_l.process(white_l);
+        let low_r = rumble_r.process(white_r);
+        let mid_l = mid_l.process(white_l);
+        let mid_r = mid_r.process(white_r);
+        let foam_l = foam_lp_l.process(foam_band_l.process(white_l));
+        let foam_r = foam_lp_r.process(foam_band_r.process(white_r));
+        let left = low_l * 0.65 + (mid_l * 0.55 + foam_l * 0.18) * swell_l;
+        let right = low_r * 0.65 + (mid_r * 0.55 + foam_r * 0.18) * swell_r;
+        output.push((left * 0.8).clamp(-0.9, 0.9));
+        output.push((right * 0.8).clamp(-0.9, 0.9));
+    }
+    output
+}
+
+fn splash_event(seed: u64, seconds: f32) -> Vec<i16> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let frames = (seconds * RATE as f32) as usize;
+    let decay = rng.gen_range(0.35f32..0.85);
+    let thump_frequency = rng.gen_range(45.0f32..90.0);
+    let attack_time = rng.gen_range(0.008f32..0.03);
+    let mut body = Biquad::low_pass(2_600.0, 0.7);
+    let mut foam = Biquad::low_pass(5_500.0, 0.7);
+    let mut output = Vec::with_capacity(frames);
+
+    for frame in 0..frames {
+        let time = frame as f32 / RATE as f32;
+        let attack = (time / attack_time).min(1.0);
+        let envelope = attack * (-time / decay).exp();
+        let white = rng.gen_range(-1.0f32..1.0);
+        let body_sample = body.process(white) * envelope;
+        let thump =
+            (TAU * thump_frequency * time).sin() * attack * (-time / (decay * 0.7)).exp() * 0.6;
+        let foam_sample = foam.process(white)
+            * (1.0 - (-time / 0.12).exp())
+            * (-time / (decay * 2.2)).exp()
+            * 0.25;
+        let sample = body_sample + thump + foam_sample;
+        output.push((sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16);
+    }
+    output
+}
+
+fn ship_bell_event(seed: u64, seconds: f32) -> Vec<i16> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let frames = (seconds * RATE as f32) as usize;
+    let base = rng.gen_range(170.0f32..300.0);
+    let decay = rng.gen_range(1.4f32..2.6);
+    // Inharmonic partials read as a small cast bell rather than a musical tone.
+    let partials = [
+        (1.0f32, 1.0f32, 1.0f32),
+        (2.0, 0.5, 0.8),
+        (2.42, 0.32, 0.65),
+        (3.0, 0.2, 0.5),
+        (4.16, 0.1, 0.35),
+        (5.43, 0.05, 0.22),
+    ];
+    let mut low_pass = Biquad::low_pass(4_000.0, 0.7);
+    let mut output = Vec::with_capacity(frames);
+
+    for frame in 0..frames {
+        let time = frame as f32 / RATE as f32;
+        let attack = (time / 0.02).min(1.0);
+        let mut sample = 0.0f32;
+        for (ratio, amplitude, decay_scale) in &partials {
+            sample += (TAU * base * ratio * time).sin()
+                * amplitude
+                * (-time / (decay * decay_scale)).exp();
+        }
+        let sample = low_pass.process(sample) * attack * 0.35;
+        output.push((sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16);
+    }
+    output
+}
+
+fn chime_event(seed: u64, seconds: f32) -> Vec<i16> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let frames = (seconds * RATE as f32) as usize;
+    let notes = [440.0f32, 523.25, 587.33, 659.25, 783.99, 880.0, 1_046.5];
+    let base = notes[rng.gen_range(0..notes.len())] * rng.gen_range(0.98f32..1.02);
+    let decay = rng.gen_range(0.8f32..2.0);
+    let partials = [
+        (1.0f32, 1.0f32, 1.0f32),
+        (2.01, 0.45, 0.7),
+        (3.03, 0.22, 0.5),
+        (4.07, 0.10, 0.35),
+        (5.11, 0.05, 0.25),
+    ];
+    let mut output = Vec::with_capacity(frames);
+
+    for frame in 0..frames {
+        let time = frame as f32 / RATE as f32;
+        let attack = (time / 0.01).min(1.0);
+        let mut sample = 0.0f32;
+        for (ratio, amplitude, decay_scale) in &partials {
+            sample += (TAU * base * ratio * time).sin()
+                * amplitude
+                * (-time / (decay * decay_scale)).exp();
+        }
+        let sample = (sample * attack * 0.3).clamp(-1.0, 1.0);
+        output.push((sample * i16::MAX as f32) as i16);
+    }
+    output
+}
+
+fn owl_event(seed: u64, seconds: f32) -> Vec<i16> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let frames = (seconds * RATE as f32) as usize;
+    let base = rng.gen_range(310.0f32..430.0);
+    let hoots = if rng.gen_bool(0.4) { 3 } else { 2 };
+    let hoot_length = (0.32 * RATE as f32) as usize;
+    let gap = (0.28 * RATE as f32) as usize;
+    let mut lp = Biquad::low_pass(900.0, 0.7);
+    let mut output = vec![0.0f32; frames];
+
+    for hoot in 0..hoots {
+        let start = hoot * (hoot_length + gap);
+        for offset in 0..hoot_length {
+            let index = start + offset;
+            if index >= frames {
+                break;
+            }
+            let time = offset as f32 / RATE as f32;
+            let envelope = (offset as f32 / hoot_length as f32 * PI).sin().powi(2);
+            let frequency = base * (1.0 + 0.01 * hoot as f32) * (1.0 + 0.02 * (time * 8.0).sin());
+            let sample =
+                (TAU * frequency * time).sin() + 0.25 * (TAU * 2.0 * frequency * time).sin();
+            output[index] = lp.process(sample * envelope * 0.4);
+        }
+    }
+    output
+        .iter()
+        .map(|sample| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
+        .collect()
+}
+
+fn rustle_event(seed: u64, seconds: f32) -> Vec<i16> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let frames = (seconds * RATE as f32) as usize;
+    let grains = 3 + rng.gen_range(0..3);
+    let mut bp = Biquad::bandpass(rng.gen_range(1_800.0f32..3_800.0), 0.8);
+    let mut output = vec![0.0f32; frames];
+
+    for _ in 0..grains {
+        let start = rng.gen_range(0..frames.saturating_sub(1));
+        let length = ((rng.gen_range(0.04f32..0.15) * RATE as f32) as usize).max(1);
+        let amplitude = rng.gen_range(0.2f32..0.7);
+        for offset in 0..length {
+            let index = start + offset;
+            if index >= frames {
+                break;
+            }
+            let envelope = (offset as f32 / length as f32 * PI).sin();
+            let noise = bp.process(rng.gen_range(-1.0f32..1.0));
+            output[index] += noise * envelope * amplitude;
+        }
+    }
+    output
+        .iter()
+        .map(|sample| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
+        .collect()
+}
+
+fn generate_rain(dir: &Path, format: AudioFormat) -> Result<()> {
+    fs::create_dir_all(dir.join("audio"))?;
+    let frames = RATE as usize * 30;
+    let fade = RATE as usize;
+    let source = rain_source(0xA1, frames + fade);
+    let bed = crossfade_loop(&source, frames, fade);
+    let bed_file = write_audio(dir, "rain", 2, &bed, format)?;
 
     let thunder_a = thunder(0x7A0, 6.0);
     let thunder_b = thunder(0x7A1, 7.5);
-    write_wav(&dir.join("audio/thunder-01.wav"), 1, &thunder_a)?;
-    write_wav(&dir.join("audio/thunder-02.wav"), 1, &thunder_b)?;
+    let thunder_a_file = write_audio(dir, "thunder-01", 1, &thunder_a, format)?;
+    let thunder_b_file = write_audio(dir, "thunder-02", 1, &thunder_b, format)?;
 
     let manifest = serde_json::json!({
         "schemaVersion": 1,
         "id": "test-rain",
         "name": { "en": "Test Rain" },
-        "description": {
-            "en": "Procedural rain bed with granular droplets and rolling thunder."
-        },
-        "version": "0.2.0",
+        "description": { "en": "Synthetic rain and thunder generated by oniris-cli." },
+        "version": "0.1.0",
         "license": "CC0-1.0",
         "tags": ["test", "water", "storm"],
-        "loudnessLufs": BED_LUFS,
-        "truePeakDbtp": TRUE_PEAK_LIMIT,
+        "credits": [{
+            "title": "Synthetic rain and thunder",
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }],
+        "loudnessLufs": -23.0,
+        "truePeakDbtp": -1.5,
         "beds": [{
             "id": "rain",
-            "file": "audio/rain.wav",
+            "file": bed_file,
             "loop": { "startSample": 0, "endSample": frames as u64 },
-            "gainDb": 0.0,
+            "gainDb": -3.0,
             "lfo": { "target": "gain", "depth": 1.5, "periodSec": 47.0 }
         }],
         "events": [{
             "id": "thunder",
-            "files": ["audio/thunder-01.wav", "audio/thunder-02.wav"],
-            "minIntervalSec": 14.0,
-            "maxIntervalSec": 34.0,
-            "initialDelaySec": 6.0,
-            "gainDb": [-7.0, -2.0],
-            "pan": [-0.35, 0.35],
-            "fadeInMs": 400,
-            "fadeOutMs": 1500,
+            "files": [thunder_a_file, thunder_b_file],
+            "minIntervalSec": 8.0,
+            "maxIntervalSec": 20.0,
+            "initialDelaySec": 3.0,
+            "gainDb": [-12.0, -6.0],
+            "pan": [-0.5, 0.5],
+            "fadeInMs": 800,
+            "fadeOutMs": 1200,
             "maxVoices": 1
         }]
     });
-    write_manifest(dir, &manifest)
+    let text = serde_json::to_string_pretty(&manifest)?;
+    Manifest::from_json_str(&text).context("generated rain manifest is invalid")?;
+    fs::write(dir.join("manifest.json"), text)?;
+    Ok(())
 }
 
-fn generate_fire(dir: &Path) -> Result<()> {
+fn generate_fire(dir: &Path, format: AudioFormat) -> Result<()> {
     fs::create_dir_all(dir.join("audio"))?;
-    let frames = RATE as usize * FIRE_SECONDS;
-    let bed = fire_bed(0xF12E);
-    write_wav(&dir.join("audio/fire.wav"), 2, &bed)?;
+    let frames = RATE as usize * 20;
+    let fade = RATE as usize;
+    let source = fire_source(0xF12E, frames + fade);
+    let bed = crossfade_loop(&source, frames, fade);
+    let bed_file = write_audio(dir, "fire", 2, &bed, format)?;
 
-    let crackle_a = crackle(0xC0A1, 1.4);
-    let crackle_b = crackle(0xC0A2, 1.1);
-    write_wav(&dir.join("audio/crackle-01.wav"), 1, &crackle_a)?;
-    write_wav(&dir.join("audio/crackle-02.wav"), 1, &crackle_b)?;
+    let crackle_a = crackle(0xC0A1, 1.2);
+    let crackle_b = crackle(0xC0A2, 0.9);
+    let crackle_a_file = write_audio(dir, "crackle-01", 1, &crackle_a, format)?;
+    let crackle_b_file = write_audio(dir, "crackle-02", 1, &crackle_b, format)?;
 
     let manifest = serde_json::json!({
         "schemaVersion": 1,
         "id": "test-fire",
         "name": { "en": "Test Fire" },
-        "description": {
-            "en": "Procedural fire bed with a low roar, hiss, and crackling embers."
-        },
-        "version": "0.2.0",
+        "description": { "en": "Synthetic fire bed and crackles generated by oniris-cli." },
+        "version": "0.1.0",
         "license": "CC0-1.0",
         "tags": ["test", "fire", "night"],
-        "loudnessLufs": BED_LUFS,
-        "truePeakDbtp": TRUE_PEAK_LIMIT,
+        "credits": [{
+            "title": "Synthetic fire and crackles",
+            "author": "Oniris",
+            "source": "synthetic",
+            "license": "CC0-1.0",
+            "modified": false
+        }],
+        "loudnessLufs": -23.0,
+        "truePeakDbtp": -1.5,
         "beds": [{
             "id": "fire",
-            "file": "audio/fire.wav",
+            "file": bed_file,
             "loop": { "startSample": 0, "endSample": frames as u64 },
-            "gainDb": 0.0,
+            "gainDb": -4.0,
             "lfo": { "target": "gain", "depth": 1.0, "periodSec": 31.0 }
         }],
         "events": [{
             "id": "crackle",
-            "files": ["audio/crackle-01.wav", "audio/crackle-02.wav"],
-            "minIntervalSec": 3.0,
-            "maxIntervalSec": 9.0,
-            "gainDb": [-9.0, -3.0],
+            "files": [crackle_a_file, crackle_b_file],
+            "minIntervalSec": 2.0,
+            "maxIntervalSec": 7.0,
+            "gainDb": [-16.0, -8.0],
             "pan": [-0.7, 0.7],
-            "fadeInMs": 10,
-            "fadeOutMs": 120,
+            "fadeInMs": 20,
+            "fadeOutMs": 80,
             "maxVoices": 2
         }]
     });
-    write_manifest(dir, &manifest)
-}
-
-fn write_manifest(dir: &Path, manifest: &serde_json::Value) -> Result<()> {
-    let text = serde_json::to_string_pretty(manifest)?;
-    Manifest::from_json_str(&text).context("generated manifest is invalid")?;
+    let text = serde_json::to_string_pretty(&manifest)?;
+    Manifest::from_json_str(&text).context("generated fire manifest is invalid")?;
     fs::write(dir.join("manifest.json"), text)?;
     Ok(())
 }
 
-fn fade_frames() -> usize {
-    (RATE as f32 * FADE_SECONDS) as usize
-}
-
-// --- Rain -------------------------------------------------------------------
-
-/// Stereo bed: pink wash, granular droplets, and a quiet low body.
-fn rain_bed(seed: u64) -> Vec<f32> {
-    let frames = RATE as usize * RAIN_SECONDS;
-    let total = frames + fade_frames();
-
-    let mut left = vec![0.0f32; total];
-    let mut right = vec![0.0f32; total];
-
-    // Wash: correlated mid plus a quieter decorrelated side, both band-limited
-    // so nothing below 120 Hz or above 7 kHz reaches the file.
-    let mut rng_mid = ChaCha8Rng::seed_from_u64(seed);
-    let mut rng_side = ChaCha8Rng::seed_from_u64(seed ^ 0x51DE);
-    let mut pink_mid = PinkNoise::new();
-    let mut pink_side = PinkNoise::new();
-    let mut hp_mid = Biquad::highpass(RATE as f32, 200.0, 0.707);
-    let mut lp_mid = Biquad::lowpass(RATE as f32, 7_000.0, 0.707);
-    let mut hp_side = Biquad::highpass(RATE as f32, 220.0, 0.707);
-    let mut lp_side = Biquad::lowpass(RATE as f32, 7_000.0, 0.707);
-
-    // Six whole swells across the loop, so the amplitude pattern does not
-    // repeat at the wrap.
-    let swell_hz = 6.0 / RAIN_SECONDS as f32;
-    for frame in 0..total {
-        let mid = lp_mid.process(hp_mid.process(pink_mid.process(rng_mid.gen_range(-1.0f32..1.0))));
-        let side =
-            lp_side.process(hp_side.process(pink_side.process(rng_side.gen_range(-1.0f32..1.0))));
-        let swell = 1.0 + 0.10 * (2.0 * PI * swell_hz * frame as f32 / RATE as f32).sin();
-        let mid = mid * 0.8 * swell;
-        let side = side * 0.55 * swell;
-        left[frame] = mid + side;
-        right[frame] = mid - side;
-    }
-
-    // Droplets: short band-passed bursts, log-normal amplitude, random pan.
-    let mut rng = ChaCha8Rng::seed_from_u64(seed ^ 0xD40F);
-    let mut time = 0.0f32;
-    while time < RAIN_SECONDS as f32 {
-        time += -((1.0 - rng.gen::<f32>()).ln()) / 95.0; // ~95 droplets/s
-        let start = (time * RATE as f32) as usize;
-        if start + 2_000 >= total {
-            break;
-        }
-        let amplitude = 0.055 * (-1.4 * rng.gen::<f32>()).exp() * rng.gen_range(0.5f32..1.0);
-        let center = rng.gen_range(2_000.0f32..5_000.0);
-        let decay = rng.gen_range(0.0015f32..0.006);
-        let length = ((decay * 6.0) * RATE as f32) as usize + 32;
-        let (gain_l, gain_r) = pan_gains(rng.gen_range(-0.9f32..0.9));
-        let mut bandpass = Biquad::bandpass(RATE as f32, center, 1.4);
-        let mut burst_rng = ChaCha8Rng::seed_from_u64(rng.gen());
-        for offset in 0..length {
-            let t = offset as f32 / RATE as f32;
-            let env = hit_envelope(t, 0.0004, decay);
-            let sample = bandpass.process(burst_rng.gen_range(-1.0f32..1.0)) * env * amplitude;
-            left[start + offset] += sample * gain_l;
-            right[start + offset] += sample * gain_r;
+/// Write one asset and return the manifest-relative path.
+fn write_audio(
+    dir: &Path,
+    name: &str,
+    channels: u16,
+    samples: &[i16],
+    format: AudioFormat,
+) -> Result<String> {
+    let relative = format!("audio/{name}.{}", format.extension());
+    let path = dir.join(&relative);
+    match format {
+        AudioFormat::Wav => write_wav(&path, channels, samples)?,
+        AudioFormat::Opus => {
+            let bitrate = if channels == 1 { 64_000 } else { 96_000 };
+            opus_encode::encode_opus(&path, samples, channels, RATE, bitrate)?;
         }
     }
-
-    // Low body: brown noise under 150 Hz, quiet. Gives weight without the
-    // subsonic waste the old 38 Hz one-pole produced.
-    let mut rng_body = ChaCha8Rng::seed_from_u64(seed ^ 0xB0D1);
-    let mut brown_l = BrownNoise::new();
-    let mut brown_r = BrownNoise::new();
-    let mut dc_l = DcBlocker::new(RATE as f32, 25.0);
-    let mut dc_r = DcBlocker::new(RATE as f32, 25.0);
-    let mut lp_l = Biquad::lowpass(RATE as f32, 150.0, 0.707);
-    let mut lp_r = Biquad::lowpass(RATE as f32, 150.0, 0.707);
-    let body_gain = db_to_gain(-27.0);
-    for frame in 0..total {
-        let l = lp_l.process(dc_l.process(brown_l.process(rng_body.gen_range(-1.0f32..1.0))));
-        let r = lp_r.process(dc_r.process(brown_r.process(rng_body.gen_range(-1.0f32..1.0))));
-        left[frame] += l * body_gain;
-        right[frame] += r * body_gain;
-    }
-
-    finish_bed(vec![left, right])
+    Ok(relative)
 }
 
-// --- Fire -------------------------------------------------------------------
+fn rain_source(seed: u64, frames: usize) -> Vec<f32> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut low_l = 0.0f32;
+    let mut low_r = 0.0f32;
+    let mut output = Vec::with_capacity(frames * 2);
 
-/// Stereo bed: low roar, thin hiss, and clustered resonant crackles.
-fn fire_bed(seed: u64) -> Vec<f32> {
-    let frames = RATE as usize * FIRE_SECONDS;
-    let total = frames + fade_frames();
+    for frame in 0..frames {
+        let white_l = rng.gen_range(-1.0f32..1.0);
+        let white_r = rng.gen_range(-1.0f32..1.0);
+        low_l = low_l * 0.995 + white_l * 0.005;
+        low_r = low_r * 0.995 + white_r * 0.005;
 
-    let mut left = vec![0.0f32; total];
-    let mut right = vec![0.0f32; total];
+        let swell = 0.85 + 0.15 * (TAU * frame as f32 / (RATE as f32 * 7.0)).sin();
+        let left = (white_l * 0.22 + low_l * 3.0) * swell * 0.45;
+        let right = (white_r * 0.20 + low_r * 3.0) * swell * 0.45;
 
-    // Roar: pink + brown band-passed to 100-600 Hz, breathing in whole cycles.
-    let mut rng_mid = ChaCha8Rng::seed_from_u64(seed);
-    let mut rng_side = ChaCha8Rng::seed_from_u64(seed ^ 0x51DE);
-    let mut pink_mid = PinkNoise::new();
-    let mut pink_side = PinkNoise::new();
-    let mut brown_mid = BrownNoise::new();
-    let mut brown_side = BrownNoise::new();
-    let mut hp_mid = Biquad::highpass(RATE as f32, 100.0, 0.6);
-    let mut lp_mid = Biquad::lowpass(RATE as f32, 550.0, 0.7);
-    let mut hp_side = Biquad::highpass(RATE as f32, 110.0, 0.6);
-    let mut lp_side = Biquad::lowpass(RATE as f32, 570.0, 0.7);
-    let cycles_a = 5.0 / FIRE_SECONDS as f32;
-    let cycles_b = 12.0 / FIRE_SECONDS as f32;
-    for frame in 0..total {
+        output.push(left.clamp(-0.85, 0.85));
+        output.push(right.clamp(-0.85, 0.85));
+    }
+
+    output
+}
+
+fn fire_source(seed: u64, frames: usize) -> Vec<f32> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut low_l = 0.0f32;
+    let mut low_r = 0.0f32;
+    let mut pop_l = 0.0f32;
+    let mut pop_r = 0.0f32;
+    let mut output = Vec::with_capacity(frames * 2);
+
+    for _ in 0..frames {
+        let white_l = rng.gen_range(-1.0f32..1.0);
+        let white_r = rng.gen_range(-1.0f32..1.0);
+        low_l = low_l * 0.998 + white_l * 0.002;
+        low_r = low_r * 0.998 + white_r * 0.002;
+
+        if rng.gen_bool(0.00035) {
+            pop_l = rng.gen_range(0.3f32..0.9);
+        }
+        if rng.gen_bool(0.00030) {
+            pop_r = rng.gen_range(0.3f32..0.9);
+        }
+        pop_l *= 0.992;
+        pop_r *= 0.992;
+
+        let left = low_l * 1.8 + pop_l * rng.gen_range(-0.6f32..0.6) + white_l * 0.015;
+        let right = low_r * 1.8 + pop_r * rng.gen_range(-0.6f32..0.6) + white_r * 0.015;
+
+        output.push(left.clamp(-0.9, 0.9));
+        output.push(right.clamp(-0.9, 0.9));
+    }
+
+    output
+}
+
+fn thunder(seed: u64, seconds: f32) -> Vec<i16> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let frames = (seconds * RATE as f32) as usize;
+    let mut low = 0.0f32;
+    let mut output = Vec::with_capacity(frames);
+
+    for frame in 0..frames {
         let time = frame as f32 / RATE as f32;
-        let mid_source = 0.6 * pink_mid.process(rng_mid.gen_range(-1.0f32..1.0))
-            + 0.4 * brown_mid.process(rng_mid.gen_range(-1.0f32..1.0));
-        let side_source = 0.6 * pink_side.process(rng_side.gen_range(-1.0f32..1.0))
-            + 0.4 * brown_side.process(rng_side.gen_range(-1.0f32..1.0));
-        let mid = lp_mid.process(hp_mid.process(mid_source));
-        let side = lp_side.process(hp_side.process(side_source));
-        let breathe = 1.0
-            + 0.16 * (2.0 * PI * cycles_a * time).sin()
-            + 0.10 * (2.0 * PI * cycles_b * time + 1.1).sin();
-        let mid = mid * breathe;
-        let side = side * 0.5 * breathe;
-        left[frame] = mid + side;
-        right[frame] = mid - side;
+        let white = rng.gen_range(-1.0f32..1.0);
+        low = low * 0.997 + white * 0.003;
+
+        let attack = (time / 0.15).min(1.0);
+        let decay = (-time / 1.8).exp();
+        let second_rumble = (-(time - 2.2).abs() / 0.7).exp() * 0.35;
+        let envelope = attack * decay + second_rumble;
+        let sample = (low * 5.0 + white * 0.08) * envelope;
+
+        output.push((sample.clamp(-0.9, 0.9) * i16::MAX as f32) as i16);
     }
 
-    // Hiss: quiet band above 2.5 kHz, what a fire sounds like up close.
-    let mut rng_hiss = ChaCha8Rng::seed_from_u64(seed ^ 0x1155);
-    let mut pink_l = PinkNoise::new();
-    let mut pink_r = PinkNoise::new();
-    let mut hp_l = Biquad::highpass(RATE as f32, 2_500.0, 0.707);
-    let mut hp_r = Biquad::highpass(RATE as f32, 2_500.0, 0.707);
-    let hiss_gain = db_to_gain(-18.0);
-    for frame in 0..total {
-        left[frame] += hp_l.process(pink_l.process(rng_hiss.gen_range(-1.0f32..1.0))) * hiss_gain;
-        right[frame] += hp_r.process(pink_r.process(rng_hiss.gen_range(-1.0f32..1.0))) * hiss_gain;
-    }
-
-    // Crackles: clustered Poisson events, resonant ticks 15-60 ms long.
-    let mut rng = ChaCha8Rng::seed_from_u64(seed ^ 0xC4AC);
-    let mut time = 0.0f32;
-    while time < FIRE_SECONDS as f32 {
-        let density = if rng.gen_bool(0.3) { 22.0 } else { 6.0 };
-        time += -((1.0 - rng.gen::<f32>()).ln()) / density;
-        let start = (time * RATE as f32) as usize;
-        if start + 4_000 >= total {
-            break;
-        }
-        // A loud snap often pulls two or three quieter ones with it.
-        let burst = if rng.gen_bool(0.35) {
-            rng.gen_range(2..5)
-        } else {
-            1
-        };
-        for index in 0..burst {
-            let offset = (index as f32 * rng.gen_range(0.02f32..0.09) * RATE as f32) as usize;
-            let event_start = start + offset;
-            if event_start + 4_000 >= total {
-                continue;
-            }
-            let base = if index == 0 { 0.45 } else { 0.18 };
-            let amplitude = base * (-1.2 * rng.gen::<f32>()).exp();
-            let center = rng.gen_range(1_200.0f32..3_500.0);
-            let decay = rng.gen_range(0.015f32..0.06);
-            let length = ((decay * 7.0) * RATE as f32) as usize + 64;
-            let (gain_l, gain_r) = pan_gains(rng.gen_range(-0.8f32..0.8));
-            let mut bandpass = Biquad::bandpass(RATE as f32, center, 2.5);
-            let mut burst_rng = ChaCha8Rng::seed_from_u64(rng.gen());
-            for frame in 0..length {
-                let t = frame as f32 / RATE as f32;
-                let env = hit_envelope(t, 0.0015, decay);
-                let carrier =
-                    0.65 * (2.0 * PI * center * t).sin() + 0.35 * burst_rng.gen_range(-1.0f32..1.0);
-                let sample = bandpass.process(carrier) * env * amplitude;
-                left[event_start + frame] += sample * gain_l;
-                right[event_start + frame] += sample * gain_r;
-            }
-        }
-    }
-
-    finish_bed(vec![left, right])
+    output
 }
 
-/// Crossfade the tail into the head, normalise to the bed target, interleave.
-fn finish_bed(mut channels: Vec<Vec<f32>>) -> Vec<f32> {
-    let total = channels[0].len();
-    let fade = fade_frames().min(total / 4);
-    for channel in channels.iter_mut() {
-        for frame in 0..fade {
+fn crackle(seed: u64, seconds: f32) -> Vec<i16> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let frames = (seconds * RATE as f32) as usize;
+    let mut pop = 0.0f32;
+    let mut output = Vec::with_capacity(frames);
+
+    for _ in 0..frames {
+        if rng.gen_bool(0.0015) {
+            pop = rng.gen_range(0.2f32..0.8);
+        }
+        pop *= 0.985;
+        let sample = pop * rng.gen_range(-1.0f32..1.0);
+        output.push((sample.clamp(-0.9, 0.9) * i16::MAX as f32) as i16);
+    }
+
+    output
+}
+
+/// Crossfade the tail of a loop into its head. The input has `frames + fade`
+/// frames; the output is exactly `frames` frames and loops at a sample boundary.
+fn crossfade_loop(source: &[f32], frames: usize, fade: usize) -> Vec<i16> {
+    assert!(source.len() >= (frames + fade) * 2);
+    let fade = fade.min(frames);
+    let mut output = Vec::with_capacity(frames * 2);
+
+    for frame in 0..frames {
+        if frame < fade {
             let t = frame as f32 / fade as f32;
             let head = (t * PI * 0.5).sin();
             let tail = (t * PI * 0.5).cos();
-            channel[frame] = channel[frame] * head + channel[total - fade + frame] * tail;
-        }
-        channel.truncate(total - fade);
-    }
-    let (loudness, true_peak) = dsp::finalize(&mut channels, BED_LUFS, TRUE_PEAK_LIMIT);
-    println!("  bed: {:.1} LUFS, {:.1} dBTP", loudness, true_peak);
-    interleave(&channels)
-}
-
-// --- Events -----------------------------------------------------------------
-
-/// Mono thunder: a short crack over a rolling low rumble with a second roll.
-fn thunder(seed: u64, seconds: f32) -> Vec<f32> {
-    let frames = (seconds * RATE as f32) as usize;
-    let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    let mut output = vec![0.0f32; frames];
-
-    let mut crack_hp = Biquad::highpass(RATE as f32, 200.0, 0.7);
-    let mut crack_lp = Biquad::lowpass(RATE as f32, 1_200.0, 0.7);
-    let mut mid_hp = Biquad::highpass(RATE as f32, 200.0, 0.7);
-    let mut mid_lp = Biquad::lowpass(RATE as f32, 900.0, 0.7);
-    let mut body_hi = Biquad::bandpass(RATE as f32, 380.0, 0.8);
-    let mut body_lo = Biquad::bandpass(RATE as f32, 160.0, 0.9);
-    let mut rumble_lp = Biquad::lowpass(RATE as f32, 160.0, 0.7);
-    let mut rumble_hp = Biquad::highpass(RATE as f32, 55.0, 0.7);
-    let mut roll_lp = Biquad::lowpass(RATE as f32, 140.0, 0.7);
-    let mut roll_hp = Biquad::highpass(RATE as f32, 28.0, 0.7);
-    let mut brown_rumble = BrownNoise::new();
-    let mut brown_roll = BrownNoise::new();
-    let mut dc_rumble = DcBlocker::new(RATE as f32, 18.0);
-    let mut dc_roll = DcBlocker::new(RATE as f32, 18.0);
-    let roll_start = 1.6 + rng.gen::<f32>() * 0.8;
-
-    for (frame, sample) in output.iter_mut().enumerate() {
-        let time = frame as f32 / RATE as f32;
-        let white = rng.gen_range(-1.0f32..1.0);
-
-        // Onset crack: broadband but rolled off, gone in ~60 ms.
-        let crack =
-            crack_lp.process(crack_hp.process(white)) * hit_envelope(time, 0.004, 0.06) * 0.6;
-
-        // Main rumble with a slow roll.
-        let rumble_source =
-            rumble_lp.process(rumble_hp.process(dc_rumble.process(brown_rumble.process(white))));
-        let rumble = rumble_source
-            * hit_envelope(time, 0.03, 3.6)
-            * (1.0 + 0.35 * (2.0 * PI * 1.1 * time + 0.4).sin());
-
-        // Mid body so it still reads as thunder on a phone speaker.
-        let body = body_hi.process(body_lo.process(white)) * hit_envelope(time, 0.02, 2.2) * 0.5;
-
-        // Second roll.
-        let roll_time = time - roll_start;
-        let roll = roll_lp.process(roll_hp.process(dc_roll.process(brown_roll.process(white))))
-            * hit_envelope(roll_time, 0.05, 1.7)
-            * (1.0 + 0.3 * (2.0 * PI * 0.9 * roll_time).sin())
-            * 0.6;
-
-        let mid_band = mid_hp.process(mid_lp.process(white)) * hit_envelope(time, 0.03, 2.4) * 0.45;
-        *sample = crack + rumble * 1.3 + body * 0.7 + roll + mid_band;
-    }
-
-    let mut channels = vec![output];
-    dsp::finalize(&mut channels, THUNDER_LUFS, TRUE_PEAK_LIMIT);
-    channels.pop().unwrap()
-}
-
-/// Mono crackle one-shot: several resonant snaps of varying weight.
-fn crackle(seed: u64, seconds: f32) -> Vec<f32> {
-    let frames = (seconds * RATE as f32) as usize;
-    let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    let mut output = vec![0.0f32; frames];
-
-    let mut time = 0.02f32;
-    while time < seconds - 0.08 {
-        let start = (time * RATE as f32) as usize;
-        let amplitude = 0.5 * (-1.5 * rng.gen::<f32>()).exp() + 0.08;
-        let center = rng.gen_range(1_500.0f32..3_500.0);
-        let decay = rng.gen_range(0.02f32..0.06);
-        let length = ((decay * 7.0) * RATE as f32) as usize + 64;
-        let mut bandpass = Biquad::bandpass(RATE as f32, center, 3.0);
-        let mut burst_rng = ChaCha8Rng::seed_from_u64(rng.gen());
-        for frame in 0..length {
-            if start + frame >= frames {
-                break;
+            for channel in 0..2 {
+                let head_sample = source[frame * 2 + channel];
+                let tail_sample = source[(frames + frame) * 2 + channel];
+                let sample = (head_sample * head + tail_sample * tail).clamp(-1.0, 1.0);
+                output.push((sample * i16::MAX as f32) as i16);
             }
-            let t = frame as f32 / RATE as f32;
-            let env = hit_envelope(t, 0.0015, decay);
-            let carrier =
-                0.7 * (2.0 * PI * center * t).sin() + 0.3 * burst_rng.gen_range(-1.0f32..1.0);
-            output[start + frame] += bandpass.process(carrier) * env * amplitude;
-        }
-        time += rng.gen_range(0.06f32..0.18);
-    }
-
-    let mut channels = vec![output];
-    dsp::finalize(&mut channels, CRACKLE_LUFS, TRUE_PEAK_LIMIT);
-    channels.pop().unwrap()
-}
-
-// --- Helpers ----------------------------------------------------------------
-
-fn pan_gains(pan: f32) -> (f32, f32) {
-    let theta = (pan.clamp(-1.0, 1.0) + 1.0) * PI * 0.25;
-    (theta.cos(), theta.sin())
-}
-
-fn interleave(channels: &[Vec<f32>]) -> Vec<f32> {
-    let frames = channels[0].len();
-    let mut out = Vec::with_capacity(frames * channels.len());
-    for frame in 0..frames {
-        for channel in channels {
-            out.push(channel[frame]);
+        } else {
+            for channel in 0..2 {
+                let sample = source[frame * 2 + channel].clamp(-1.0, 1.0);
+                output.push((sample * i16::MAX as f32) as i16);
+            }
         }
     }
-    out
+
+    output
 }
 
-fn write_wav(path: &Path, channels: u16, samples: &[f32]) -> Result<()> {
+fn write_wav(path: &Path, channels: u16, samples: &[i16]) -> Result<()> {
     let spec = WavSpec {
         channels,
         sample_rate: RATE,
@@ -462,7 +1839,7 @@ fn write_wav(path: &Path, channels: u16, samples: &[f32]) -> Result<()> {
     let mut writer = WavWriter::create(path, spec)
         .with_context(|| format!("failed to create {}", path.display()))?;
     for sample in samples {
-        writer.write_sample((sample.clamp(-1.0, 1.0) * 32767.0).round() as i16)?;
+        writer.write_sample(*sample)?;
     }
     writer.finalize()?;
     Ok(())
@@ -471,137 +1848,280 @@ fn write_wav(path: &Path, channels: u16, samples: &[f32]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dsp::testkit;
+    use oniris_core::decode_audio;
 
-    fn read_wav(path: &Path) -> (Vec<Vec<f32>>, u32) {
-        let mut reader = hound::WavReader::open(path).expect("open generated wav");
-        let spec = reader.spec();
-        let samples: Vec<f32> = reader
-            .samples::<i16>()
-            .map(|s| s.expect("sample") as f32 / 32768.0)
-            .collect();
-        let channels = spec.channels as usize;
-        let mut split = vec![Vec::with_capacity(samples.len() / channels); channels];
-        for (index, sample) in samples.iter().enumerate() {
-            split[index % channels].push(*sample);
+    /// Power at one frequency, used as a cheap spectral probe in tests.
+    fn goertzel_power(samples: &[f32], rate: u32, frequency: f32) -> f64 {
+        let omega = std::f64::consts::TAU * frequency as f64 / rate as f64;
+        let coefficient = 2.0 * omega.cos();
+        let mut previous = 0.0f64;
+        let mut older = 0.0f64;
+        for sample in samples {
+            let state = *sample as f64 + coefficient * previous - older;
+            older = previous;
+            previous = state;
         }
-        (split, spec.sample_rate)
+        (previous * previous + older * older - coefficient * previous * older).max(0.0)
     }
 
-    fn mono(channels: &[Vec<f32>]) -> Vec<f32> {
-        if channels.len() == 1 {
-            return channels[0].clone();
+    fn band_power(samples: &[f32], rate: u32, low: f32, high: f32) -> f64 {
+        let step = 2.0f32.powf(1.0 / 6.0);
+        let mut frequency = low;
+        let mut total = 0.0;
+        while frequency < high {
+            total += goertzel_power(samples, rate, frequency);
+            frequency *= step;
         }
-        channels[0]
-            .iter()
-            .zip(&channels[1])
-            .map(|(l, r)| 0.5 * (l + r))
-            .collect()
+        total
     }
 
-    fn correlation(stereo: &[Vec<f32>]) -> f32 {
-        let (l, r) = (&stereo[0], &stereo[1]);
-        let n = l.len() as f32;
-        let mean_l = l.iter().sum::<f32>() / n;
-        let mean_r = r.iter().sum::<f32>() / n;
-        let (mut cov, mut var_l, mut var_r) = (0.0f32, 0.0f32, 0.0f32);
-        for (a, b) in l.iter().zip(r) {
-            let da = a - mean_l;
-            let dbb = b - mean_r;
-            cov += da * dbb;
-            var_l += da * da;
-            var_r += dbb * dbb;
-        }
-        cov / (var_l.sqrt() * var_r.sqrt())
-    }
-
-    fn assert_clean(channels: &[Vec<f32>], label: &str) {
-        let peak = channels
-            .iter()
-            .flat_map(|c| c.iter())
-            .fold(0.0f32, |acc, s| acc.max(s.abs()));
-        assert!(
-            peak < 0.999,
-            "{label} has samples at full scale (peak {peak})"
-        );
-        let true_peak = dsp::true_peak_dbtp(channels);
-        assert!(
-            true_peak <= TRUE_PEAK_LIMIT + 0.05,
-            "{label} true peak {true_peak}"
-        );
-        for channel in channels {
-            let dc: f32 = channel.iter().sum::<f32>() / channel.len() as f32;
-            assert!(dc.abs() < 0.001, "{label} DC offset {dc}");
-        }
-        if channels.len() == 2 {
-            let seam = (channels[0][0] - channels[0][channels[0].len() - 1]).abs();
-            assert!(seam < 0.05, "{label} loop seam {seam}");
-        }
-    }
-
-    /// The pack-quality targets from docs/PACK_QUALITY_REVIEW.md, in one place.
     #[test]
-    fn procedural_packs_meet_quality_targets() {
+    fn procedural_rain_has_a_natural_spectral_balance() {
+        let frames = 5 * RATE as usize;
+        let source = procedural_rain_source(0x7A1, frames);
+        let mono: Vec<f32> = source
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|frame| 0.5 * (frame[0] + frame[1]))
+            .collect();
+
+        // A high-pitched bed (dense sines between 1.5 and 6 kHz) puts as much
+        // energy in 4-8 kHz as in 1-2 kHz. Rain should fall off well before
+        // that, both to sound natural and to stay comfortable at low volume.
+        let low = band_power(&mono, RATE, 1_000.0, 2_000.0);
+        let high = band_power(&mono, RATE, 4_000.0, 8_000.0);
+        assert!(
+            low > 0.0 && high > 0.0,
+            "procedural rain measured as silence"
+        );
+        let ratio_db = 10.0 * (high / low).log10();
+        assert!(
+            ratio_db < -4.0,
+            "rain 4-8 kHz energy was {ratio_db:.1} dB relative to 1-2 kHz; the bed is too bright"
+        );
+
+        // Third-octave probes, as a coarse centroid guard.
+        let (mut total, mut weighted) = (0.0, 0.0);
+        let step = 2.0f32.powf(1.0 / 3.0);
+        let mut frequency = 100.0f32;
+        while frequency < 16_000.0 {
+            let power = goertzel_power(&mono, RATE, frequency);
+            total += power;
+            weighted += frequency as f64 * power;
+            frequency *= step;
+        }
+        let centroid = weighted / total;
+        assert!(
+            (400.0..2_000.0).contains(&centroid),
+            "rain spectral centroid was {centroid:.0} Hz; the bed should stay broadband"
+        );
+    }
+
+    #[test]
+    fn generates_valid_procedural_rain_pack() {
         let dir = tempfile::tempdir().unwrap();
-        generate_test_packs(dir.path()).unwrap();
+        let pack = dir.path().join("rainy-night-procedural");
+        let frames = 10 * RATE as usize;
+        generate_procedural_rain(&pack, frames, RATE as usize, 1.2, 4, 0.25).unwrap();
 
-        let (rain, rate) = read_wav(&dir.path().join("test-rain/audio/rain.wav"));
-        assert_eq!(rate, RATE);
-        assert_eq!(rain.len(), 2, "rain bed is stereo");
-        let (centroid, shares) = testkit::analyze(&mono(&rain), RATE as f32);
-        let phone = testkit::phone_band_share(&shares);
-        assert!(
-            (1_800.0..=3_200.0).contains(&centroid),
-            "rain centroid {centroid}"
-        );
-        assert!(shares[0] < 2.0, "rain subsonic {}%", shares[0]);
-        assert!((40.0..=75.0).contains(&phone), "rain phone band {phone}%");
-        assert!(shares[7] < 8.0, "rain >8 kHz {}%", shares[7]);
-        let rain_corr = correlation(&rain);
-        assert!(
-            (0.2..0.6).contains(&rain_corr),
-            "rain stereo correlation {rain_corr}"
-        );
-        assert_clean(&rain, "rain");
+        let manifest = Manifest::load(&pack).unwrap();
+        manifest.validate_files(&pack).unwrap();
+        assert!(manifest.procedural);
+        assert_eq!(manifest.id, "rainy-night-procedural");
+        assert_eq!(manifest.beds.len(), 1);
+        assert_eq!(manifest.events.len(), 2);
+        assert_eq!(manifest.events[0].files.len(), 3);
+        assert_eq!(manifest.events[1].files.len(), 4);
+        assert_eq!(manifest.credits.len(), 8);
 
-        let (fire, _) = read_wav(&dir.path().join("test-fire/audio/fire.wav"));
-        assert_eq!(fire.len(), 2, "fire bed is stereo");
-        let (centroid, shares) = testkit::analyze(&mono(&fire), RATE as f32);
-        let phone = testkit::phone_band_share(&shares);
+        let audio = decode_audio(&pack.join("audio/rain.opus"), RATE).unwrap();
+        assert_eq!(audio.frames, frames);
+        let measurement = crate::loudness::measure(&audio.samples, audio.channels, RATE);
         assert!(
-            (900.0..=2_000.0).contains(&centroid),
-            "fire centroid {centroid}"
+            (measurement.integrated_lufs + 23.0).abs() < 1.0,
+            "loudness {}",
+            measurement.integrated_lufs
         );
-        assert!(shares[0] < 3.0, "fire subsonic {}%", shares[0]);
-        assert!((30.0..=60.0).contains(&phone), "fire phone band {phone}%");
-        assert!(shares[7] < 5.0, "fire >8 kHz {}%", shares[7]);
-        assert_clean(&fire, "fire");
+    }
 
-        for name in ["thunder-01.wav", "thunder-02.wav"] {
-            let (channels, _) = read_wav(&dir.path().join("test-rain/audio").join(name));
-            assert_eq!(channels.len(), 1, "{name} is mono");
-            let (centroid, shares) = testkit::analyze(&channels[0], RATE as f32);
-            let phone = testkit::phone_band_share(&shares);
-            assert!(
-                (200.0..=550.0).contains(&centroid),
-                "{name} centroid {centroid}"
-            );
-            assert!(shares[0] < 5.0, "{name} subsonic {}%", shares[0]);
-            assert!((25.0..=60.0).contains(&phone), "{name} phone band {phone}%");
-            assert!(shares[7] < 3.0, "{name} >8 kHz {}%", shares[7]);
-            assert_clean(&channels, name);
+    #[test]
+    fn generates_valid_deep_space_pack() {
+        let dir = tempfile::tempdir().unwrap();
+        let pack = dir.path().join("deep-space-cabin");
+        let frames = 10 * RATE as usize;
+        generate_deep_space(&pack, frames, RATE as usize).unwrap();
+
+        let manifest = Manifest::load(&pack).unwrap();
+        manifest.validate_files(&pack).unwrap();
+        assert!(manifest.procedural);
+        assert_eq!(manifest.id, "deep-space-cabin");
+        assert_eq!(manifest.beds.len(), 2);
+        assert_eq!(manifest.events.len(), 3);
+        assert_eq!(manifest.events[0].files.len(), 3);
+        assert_eq!(manifest.events[1].files.len(), 3);
+        assert_eq!(manifest.events[2].files.len(), 2);
+        assert_eq!(manifest.credits.len(), 10);
+
+        let engine = decode_audio(&pack.join("audio/engine.opus"), RATE).unwrap();
+        let air = decode_audio(&pack.join("audio/air.opus"), RATE).unwrap();
+        assert_eq!(engine.frames, frames);
+        assert_eq!(air.frames, frames);
+        let combined = mix_scaled(
+            &engine.samples,
+            &air.samples,
+            db_to_linear(-6.0),
+            db_to_linear(-12.0),
+        );
+        let measurement = crate::loudness::measure(&combined, 2, RATE);
+        assert!(
+            (measurement.integrated_lufs + 23.0).abs() < 1.5,
+            "loudness {}",
+            measurement.integrated_lufs
+        );
+    }
+
+    #[test]
+    fn generates_valid_enchanted_forest_pack() {
+        let dir = tempfile::tempdir().unwrap();
+        let pack = dir.path().join("enchanted-forest");
+        let frames = 10 * RATE as usize;
+        generate_enchanted_forest(&pack, frames, RATE as usize).unwrap();
+
+        let manifest = Manifest::load(&pack).unwrap();
+        manifest.validate_files(&pack).unwrap();
+        assert!(manifest.procedural);
+        assert_eq!(manifest.id, "enchanted-forest");
+        assert_eq!(manifest.beds.len(), 2);
+        assert_eq!(manifest.events.len(), 3);
+        assert_eq!(manifest.events[0].files.len(), 4);
+        assert_eq!(manifest.events[1].files.len(), 2);
+        assert_eq!(manifest.events[2].files.len(), 3);
+        assert_eq!(manifest.credits.len(), 11);
+
+        let wind = decode_audio(&pack.join("audio/wind.opus"), RATE).unwrap();
+        let brook = decode_audio(&pack.join("audio/brook.opus"), RATE).unwrap();
+        assert_eq!(wind.frames, frames);
+        assert_eq!(brook.frames, frames);
+        let combined = mix_scaled(
+            &wind.samples,
+            &brook.samples,
+            db_to_linear(-8.0),
+            db_to_linear(-12.0),
+        );
+        let measurement = crate::loudness::measure(&combined, 2, RATE);
+        assert!(
+            (measurement.integrated_lufs + 23.0).abs() < 1.5,
+            "loudness {}",
+            measurement.integrated_lufs
+        );
+    }
+
+    #[test]
+    fn generates_valid_windy_sea_voyage_pack() {
+        let dir = tempfile::tempdir().unwrap();
+        let pack = dir.path().join("windy-sea-voyage");
+        let frames = 10 * RATE as usize;
+        generate_sea_voyage(&pack, frames, RATE as usize).unwrap();
+
+        let manifest = Manifest::load(&pack).unwrap();
+        manifest.validate_files(&pack).unwrap();
+        assert!(manifest.procedural);
+        assert_eq!(manifest.id, "windy-sea-voyage");
+        assert_eq!(manifest.beds.len(), 2);
+        assert_eq!(manifest.events.len(), 3);
+        assert_eq!(manifest.events[0].files.len(), 3);
+        assert_eq!(manifest.events[1].files.len(), 3);
+        assert_eq!(manifest.events[2].files.len(), 2);
+        assert_eq!(manifest.credits.len(), 10);
+
+        let wind = decode_audio(&pack.join("audio/wind.opus"), RATE).unwrap();
+        let sea = decode_audio(&pack.join("audio/sea.opus"), RATE).unwrap();
+        assert_eq!(wind.frames, frames);
+        assert_eq!(sea.frames, frames);
+        let combined = mix_scaled(
+            &wind.samples,
+            &sea.samples,
+            db_to_linear(-6.0),
+            db_to_linear(-10.0),
+        );
+        let measurement = crate::loudness::measure(&combined, 2, RATE);
+        assert!(
+            (measurement.integrated_lufs + 23.0).abs() < 1.5,
+            "loudness {}",
+            measurement.integrated_lufs
+        );
+    }
+
+    #[test]
+    fn windy_sea_beds_have_a_natural_spectral_balance() {
+        let frames = 5 * RATE as usize;
+        let wind = sea_wind_bed(0x5EA1, frames);
+        let sea = sea_swell_bed(0x5EA2, frames);
+        let mono: Vec<f32> = wind
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .zip(sea.as_chunks::<2>().0.iter())
+            .map(|(wind, sea)| 0.25 * (wind[0] + wind[1] + sea[0] + sea[1]))
+            .collect();
+
+        let low = band_power(&mono, RATE, 1_000.0, 2_000.0);
+        let high = band_power(&mono, RATE, 4_000.0, 8_000.0);
+        assert!(low > 0.0 && high > 0.0, "sea beds measured as silence");
+        let ratio_db = 10.0 * (high / low).log10();
+        assert!(
+            ratio_db < -6.0,
+            "sea 4-8 kHz energy was {ratio_db:.1} dB relative to 1-2 kHz; the beds are too bright"
+        );
+
+        let (mut total, mut weighted) = (0.0, 0.0);
+        let step = 2.0f32.powf(1.0 / 3.0);
+        let mut frequency = 100.0f32;
+        while frequency < 16_000.0 {
+            let power = goertzel_power(&mono, RATE, frequency);
+            total += power;
+            weighted += frequency as f64 * power;
+            frequency *= step;
         }
+        let centroid = weighted / total;
+        assert!(
+            (400.0..2_500.0).contains(&centroid),
+            "sea spectral centroid was {centroid:.0} Hz; the beds should stay broad and low"
+        );
+    }
 
-        for name in ["crackle-01.wav", "crackle-02.wav"] {
-            let (channels, _) = read_wav(&dir.path().join("test-fire/audio").join(name));
-            let (centroid, shares) = testkit::analyze(&channels[0], RATE as f32);
-            let phone = testkit::phone_band_share(&shares);
-            assert!(
-                (1_500.0..=4_000.0).contains(&centroid),
-                "{name} centroid {centroid}"
-            );
-            assert!(phone >= 50.0, "{name} phone band {phone}%");
-            assert_clean(&channels, name);
-        }
+    #[test]
+    fn generates_valid_pure_noise_pack() {
+        let dir = tempfile::tempdir().unwrap();
+        let pack = dir.path().join("pure-noise");
+        let frames = 10 * RATE as usize;
+        generate_pure_noise(&pack, frames, RATE as usize).unwrap();
+
+        let manifest = Manifest::load(&pack).unwrap();
+        manifest.validate_files(&pack).unwrap();
+
+        assert_eq!(manifest.id, "pure-noise");
+        assert!(manifest.procedural);
+        assert_eq!(manifest.beds.len(), 2);
+        assert_eq!(manifest.credits.len(), 2);
+        assert_eq!(
+            manifest.credits[0].asset.as_deref(),
+            Some("audio/pink-noise.opus")
+        );
+
+        let pink = decode_audio(&pack.join("audio/pink-noise.opus"), RATE).unwrap();
+        let brown = decode_audio(&pack.join("audio/brown-noise.opus"), RATE).unwrap();
+        assert_eq!(pink.frames, frames);
+        assert_eq!(brown.frames, frames);
+
+        let combined = mix_i16(&pink.samples, &brown.samples);
+        let measurement = crate::loudness::measure(&combined, 2, RATE);
+        assert!(
+            (measurement.integrated_lufs + 23.0).abs() < 1.0,
+            "loudness {}",
+            measurement.integrated_lufs
+        );
+        assert!(measurement.true_peak_dbtp < -1.5);
     }
 }

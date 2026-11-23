@@ -1,0 +1,9 @@
+pack,role,source,url,author,license,download_date,original_file,sha256,sample_rate,bit_depth,channels,duration_sec,edits,notes
+pure-noise,bed,synthetic,generated,Oniris,CC0-1.0,2026-10-26,generated-pink.wav,,48000,24,2,60,generated + slow filter,no external source
+rainy-night,bed,Freesound,https://freesound.org/s/719062/,giddster,CC0-1.0,TODO,TODO,TODO,48000,32,2,62.2,trim + loop + normalize,audition before committing
+rainy-night,event,National Park Service,https://www.nps.gov/subjects/sound/sounds-thunder.htm,National Park Service,Public Domain,TODO,nri-Thunder.mp3,TODO,44100,n/a,1,46,trim + fade,nps mp3 128 kbps mono
+seaside,bed,Freesound,https://freesound.org/s/827530/,YevgVerh,CC0-1.0,TODO,TODO,TODO,48000,16,2,181.2,trim + loop + normalize,audition before committing
+seaside,event,National Park Service,https://www.nps.gov/subjects/sound/sounds-western-gull.htm,National Park Service,Public Domain,TODO,TODO,TODO,44100,n/a,1,TODO,trim + fade,nps mp3
+cabin-fire,bed,Freesound,https://freesound.org/s/804852/,FrédéricDubois,CC-BY-4.0,TODO,TODO,TODO,48000,32,2,269.5,trim + loop + normalize,attribution required
+forest-deep,bed,Luftrum,https://www.luftrum.com/free-field-recordings/,Luftrum,CC-BY-4.0,TODO,TODO,TODO,TODO,TODO,2,TODO,trim + loop + normalize,verify download format
+forest-deep,event,National Park Service,https://www.nps.gov/subjects/sound/sounds-spotted-owl.htm,National Park Service,Public Domain,TODO,nri-SpottedOwlYOSE.mp3,TODO,44100,n/a,1,5,trim + fade,nps mp3 128 kbps mono

@@ -14,10 +14,10 @@
 └──────────────────────┬───────────────────────┘
                        │ StateFlow / intents
 ┌──────────────────────▼───────────────────────┐
-│ PlaybackService (foreground media service)    │
-│  ├─ MediaSessionCompat (notification/lock)   │
-│  ├─ Audio focus / becoming-noisy handling    │
-│  └─ AudioRenderThread ── AudioTrack          │
+│ PlaybackService (MediaSessionService)         │
+│  ├─ Media3 session + SimpleBasePlayer         │
+│  ├─ Audio focus / becoming-noisy handling     │
+│  └─ AudioRenderThread ── AudioTrack           │
 └──────────────────────┬───────────────────────┘
                        │ JNI, coarse calls only
 ┌──────────────────────▼───────────────────────┐
@@ -100,24 +100,28 @@ budget before starting.
 
 ## Android shell
 
-- **Navigation:** five destinations (Play, Library, Mixer, Timer, Settings) in a
-  Material 3 `NavigationDrawer` — modal with a hamburger on compact widths,
-  permanent at ≥600 dp. Screens are stateless; the shell owns settings, pack
-  state, and the effects that drive `PlaybackController`.
-- **Service:** foreground service with `mediaPlayback` type and a
-  `MediaSessionCompat`. The scaffold uses the compatibility session because the
-  custom engine is not an ExoPlayer `Player`; a Media3 `SimpleBasePlayer` adapter
-  is a later refactor.
+- **Service:** `MediaSessionService` with a `Media3` session and
+  `SimpleBasePlayer` adapter over the Rust engine. Media3 owns the notification,
+  lock-screen controls, media buttons, and foreground lifecycle.
 - **Audio:** `AudioTrack` streaming, 48 kHz stereo, PCM 16-bit,
-  `PERFORMANCE_MODE_POWER_SAVING` (API 26+). The native master limiter adds a
-  fixed 5 ms of latency; `Engine::output_latency_frames()` reports it for buffer
-  sizing and underrun analysis.
+  `PERFORMANCE_MODE_POWER_SAVING` (API 26+).
 - **Audio focus:** pause on loss, duck on transient-can-duck, resume only if
   playback was active.
 - **Becoming noisy:** pause when headphones disconnect (default).
 - **Wake lock:** a partial wake lock only while playing; verify on real devices
   whether the audio HAL already holds one.
-- **Notification:** play/pause/stop; update on state changes only.
+- **Notification:** Media3 media notification with play/pause/stop and the active
+  mix name; update on state changes only.
+- **Live mix:** selecting or deselecting packs while playing loads newly added
+  packs and calls `set_mix`, so common packs keep their position and the change
+  crossfades. Removed packs stay decoded for a fast re-add.
+- **Import:** the system document picker copies the archive to cache, then JNI
+  installs it through the same Rust archive module used by the CLI.
+- **Preview:** a separate short-lived engine plays a 30-second excerpt so the
+  main mix is not disturbed. Previews are only allowed while the main mix is
+  paused.
+- **Quick Settings:** `PlaybackTileService` toggles the last mix through the
+  same `PlaybackService` actions used by the notification.
 
 ## Portability
 
@@ -133,16 +137,51 @@ The core has no Android types. The JNI crate is a thin shim; a C header can be
 generated for other platforms. Pack parsing and the asset pipeline are
 platform-neutral.
 
-## Known gaps
+## Codec notes
 
-- Media3 `SimpleBasePlayer` adapter (using `MediaSessionCompat`).
-- Download manager, pack import UI, and bundled pack installation.
-- Real content and loudness normalization pipeline.
-- Presets, per-pack volume, lock-screen metadata, quick tile.
-- On-device battery/underrun measurement and the 8-hour soak.
+- Ogg/Opus and WAV are decoded at load, before the mixer starts. Opus is always
+  decoded at 48 kHz and resampled once if the engine runs at another rate;
+  RFC 7845 pre-skip and end-trim are applied so loop points stay sample-exact.
+- `opus-pure` provides both decode and encode in pure Rust. There is no libopus
+  FFI, CMake step, or extra Android library to package.
+- The CLI encoder writes gapless files, which `oniris validate` and the engine
+  test suite exercise on every run. WAV remains supported for lossless tests.
+- Rate conversion uses a Hann-windowed sinc low-pass, widened for downsampling,
+  so 44.1 kHz assets and 48 kHz Opus both load cleanly without aliasing.
+- The master limiter has 5 ms of lookahead and a 100 ms release. It is a
+  sample-peak limiter (not true-peak) and never lets a sample exceed -1.5 dBFS.
 
-Engine-side scaffold gaps — Opus decode, lookahead limiting, band-limited
-resampling, and mix crossfade — are closed (2026-10-26); see
-`docs/CURRENT_ROADMAP.md` for the current status and task tree.
+## Content measurement
+
+`oniris-cli loudness` applies the BS.1770 K-weighting filters and 400 ms gated
+blocks to report integrated LUFS, true peak (4x oversampled), and sample peak.
+`oniris-cli normalize` applies a single gain that reaches the LUFS target unless
+that would exceed the true-peak ceiling. Both decode at 48 kHz first, so WAV
+masters at other rates are resampled once by the same sinc path as playback.
+
+## Mix transitions
+
+`set_mix` is sample-continuous while playing. Packs present in both mixes keep
+their bed position, LFO phase, and event schedule; added packs fade in and
+removed packs fade out over a configurable duration (2 s by default). Event
+voices follow their pack's fade and per-pack gain, so removing a pack does not
+leave a dry event behind. When the engine is stopped or paused, mix changes
+apply immediately.
+
+## Pack archives
+
+`.onirispack` files are deterministic zips written and validated by
+`oniris-pack::archive`. Entry names, types, sizes, and the manifest are checked
+before extraction; files are unpacked into a temporary directory and renamed
+into place only after the whole archive validates. The CLI exposes this as
+`pack`, `verify-pack`, and `unpack`. Android import calls the same Rust
+module through JNI so there is one set of security rules.
+
+## Known scaffold gaps
+
+- Downloadable-pack browser/updater (import and bundled packs are implemented).
+- Real content sourcing, listening QA, and final loudness decisions (measurement
+  and gain tools are in the CLI).
+- Real-device battery, underrun, and thermal soak testing.
 
 These are tracked in `docs/DEVELOPMENT_PLAN.md`.

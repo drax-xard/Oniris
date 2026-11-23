@@ -25,23 +25,17 @@ class NativeEngine(sampleRate: Int = 48_000) : AutoCloseable {
         }
     }
 
-    /**
-     * The native side raises a Java exception instead of returning a code on
-     * error (for example an id that is not loaded), so every code-returning
-     * call is wrapped: the bridge contract is Boolean, never a throw.
-     */
     @Synchronized
     fun loadPack(path: String): Boolean =
-        handle != 0L && runCatching { nativeLoadPack(handle, path) == 0 }.getOrDefault(false)
+        handle != 0L && nativeLoadPack(handle, path) == 0
 
     @Synchronized
     fun setMix(json: String): Boolean =
-        handle != 0L && runCatching { nativeSetMix(handle, json) == 0 }.getOrDefault(false)
+        handle != 0L && nativeSetMix(handle, json) == 0
 
     @Synchronized
-    fun setPackGainDb(id: String, gainDb: Float): Boolean =
-        handle != 0L &&
-            runCatching { nativeSetPackGain(handle, id, gainDb) == 0 }.getOrDefault(false)
+    fun setPackGain(id: String, gain: Float): Boolean =
+        handle != 0L && nativeSetPackGain(handle, id, gain) == 0
 
     @Synchronized
     fun setMasterGain(gain: Float) {
@@ -69,6 +63,11 @@ class NativeEngine(sampleRate: Int = 48_000) : AutoCloseable {
     }
 
     @Synchronized
+    fun setFadeIn(ms: Long) {
+        if (handle != 0L) nativeSetFadeIn(handle, ms)
+    }
+
+    @Synchronized
     fun clearSleepTimer() {
         if (handle != 0L) nativeClearSleepTimer(handle)
     }
@@ -79,6 +78,9 @@ class NativeEngine(sampleRate: Int = 48_000) : AutoCloseable {
 
     @Synchronized
     fun isFinished(): Boolean = handle != 0L && nativeIsFinished(handle)
+
+    @Synchronized
+    fun isPaused(): Boolean = handle != 0L && nativeIsPaused(handle)
 
     @Synchronized
     fun decodedBytes(): Long = if (handle == 0L) 0L else nativeDecodedBytes(handle)
@@ -102,8 +104,10 @@ class NativeEngine(sampleRate: Int = 48_000) : AutoCloseable {
     private external fun nativePause(handle: Long)
     private external fun nativeStop(handle: Long)
     private external fun nativeSetSleepTimer(handle: Long, durationMs: Long, fadeMs: Long)
+    private external fun nativeSetFadeIn(handle: Long, durationMs: Long)
     private external fun nativeClearSleepTimer(handle: Long)
     private external fun nativeRender(handle: Long, buffer: ByteBuffer, frames: Int): Int
     private external fun nativeIsFinished(handle: Long): Boolean
+    private external fun nativeIsPaused(handle: Long): Boolean
     private external fun nativeDecodedBytes(handle: Long): Long
 }

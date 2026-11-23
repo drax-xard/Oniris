@@ -3,22 +3,29 @@ package dev.oniris.data
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import org.json.JSONObject
 
 data class Settings(
     val selectedPackIds: Set<String> = emptySet(),
     /** Linear master volume, 0..1. */
     val masterVolume: Float = 0.8f,
+    /** Per-pack linear volume, 0..1. Missing packs default to 1.0. */
+    val packGains: Map<String, Float> = emptyMap(),
+    /** User-saved named mixes. Built-in presets live in the UI layer. */
+    val presets: List<MixPreset> = emptyList(),
     /** Sleep timer in minutes; 0 means off. */
     val timerMinutes: Int = 0,
-    /** Linear per-pack trim keyed by pack id; a missing entry means unity. */
-    val packGains: Map<String, Float> = emptyMap(),
+    /** Hide recorded packs and use only fully synthesized packs. */
+    val proceduralOnly: Boolean = false,
 )
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore("oniris_settings")
@@ -30,8 +37,10 @@ class SettingsStore(context: Context) {
         Settings(
             selectedPackIds = preferences[SELECTED_PACKS].orEmpty(),
             masterVolume = preferences[MASTER_VOLUME] ?: 0.8f,
+            packGains = decodePackGains(preferences[PACK_GAINS]),
+            presets = decodePresets(preferences[PRESETS]),
             timerMinutes = preferences[TIMER_MINUTES] ?: 0,
-            packGains = parseGains(preferences[PACK_GAINS]),
+            proceduralOnly = preferences[PROCEDURAL_ONLY] ?: false,
         )
     }
 
@@ -43,36 +52,76 @@ class SettingsStore(context: Context) {
         dataStore.edit { it[MASTER_VOLUME] = volume.coerceIn(0f, 1f) }
     }
 
+    suspend fun setPackGain(id: String, volume: Float) {
+        dataStore.edit { preferences ->
+            val gains = decodePackGains(preferences[PACK_GAINS]).toMutableMap()
+            gains[id] = volume.coerceIn(0f, 1f)
+            preferences[PACK_GAINS] = JSONObject(gains).toString()
+        }
+    }
+
+    suspend fun setPackGains(gains: Map<String, Float>) {
+        dataStore.edit { preferences ->
+            preferences[PACK_GAINS] = JSONObject(
+                gains.mapValues { (_, value) -> value.coerceIn(0f, 1f) },
+            ).toString()
+        }
+    }
+
+    suspend fun savePreset(preset: MixPreset) {
+        dataStore.edit { preferences ->
+            val presets = decodePresets(preferences[PRESETS])
+                .filterNot { it.id == preset.id }
+                .plus(preset)
+            preferences[PRESETS] = encodePresets(presets)
+        }
+    }
+
+    suspend fun deletePreset(id: String) {
+        dataStore.edit { preferences ->
+            val presets = decodePresets(preferences[PRESETS]).filterNot { it.id == id }
+            preferences[PRESETS] = encodePresets(presets)
+        }
+    }
+
+    /** Apply all parts of a preset in one DataStore transaction. */
+    suspend fun applyPreset(preset: MixPreset) {
+        dataStore.edit { preferences ->
+            preferences[SELECTED_PACKS] = preset.packIds.toSet()
+            preferences[PACK_GAINS] = JSONObject(
+                preset.packGains.mapValues { (_, value) -> value.coerceIn(0f, 1f) },
+            ).toString()
+            preferences[MASTER_VOLUME] = preset.masterVolume.coerceIn(0f, 1f)
+            preferences[TIMER_MINUTES] = preset.timerMinutes.coerceAtLeast(0)
+        }
+    }
+
     suspend fun setTimerMinutes(minutes: Int) {
         dataStore.edit { it[TIMER_MINUTES] = minutes.coerceAtLeast(0) }
     }
 
-    /** Store a linear trim for one pack; 1.0 is unity gain. */
-    suspend fun setPackGain(packId: String, gain: Float) {
-        val clamped = gain.coerceIn(0f, MAX_PACK_GAIN)
-        dataStore.edit { preferences ->
-            val entries = preferences[PACK_GAINS].orEmpty()
-                .filterNot { it.substringBefore('=') == packId }
-                .toMutableSet()
-            entries.add("$packId=$clamped")
-            preferences[PACK_GAINS] = entries
-        }
+    suspend fun setProceduralOnly(enabled: Boolean) {
+        dataStore.edit { it[PROCEDURAL_ONLY] = enabled }
     }
-
-    private fun parseGains(entries: Set<String>?): Map<String, Float> =
-        entries.orEmpty().mapNotNull { entry ->
-            val id = entry.substringBefore('=', "")
-            val value = entry.substringAfter('=', "").toFloatOrNull()
-            if (id.isBlank() || value == null) null else id to value.coerceIn(0f, MAX_PACK_GAIN)
-        }.toMap()
 
     private companion object {
         val SELECTED_PACKS = stringSetPreferencesKey("selected_packs")
         val MASTER_VOLUME = floatPreferencesKey("master_volume")
+        val PACK_GAINS = stringPreferencesKey("pack_gains")
+        val PRESETS = stringPreferencesKey("presets")
         val TIMER_MINUTES = intPreferencesKey("timer_minutes")
-        val PACK_GAINS = stringSetPreferencesKey("pack_gains")
-
-        /** Matches the engine's per-pack gain clamp (0..2 linear) with headroom to spare. */
-        const val MAX_PACK_GAIN = 1.5f
+        val PROCEDURAL_ONLY = booleanPreferencesKey("procedural_only")
     }
+}
+
+private fun decodePackGains(json: String?): Map<String, Float> {
+    if (json.isNullOrBlank()) return emptyMap()
+    return runCatching {
+        val values = JSONObject(json)
+        buildMap {
+            values.keys().forEach { id ->
+                put(id, values.optDouble(id, 1.0).toFloat().coerceIn(0f, 1f))
+            }
+        }
+    }.getOrDefault(emptyMap())
 }

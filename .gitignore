@@ -14,15 +14,17 @@ android/.idea/
 *.apk
 *.aab
 android/app/src/main/jniLibs/
+android/app/src/main/assets/packs/
 
 # Generated audio / packs
 /packs/
+/packs-wav/
 *.wav
 *.mp3
 *.opus
 *.ogg
 *.flac
-!core/oniris-core/tests/fixtures/*.opus
+*.onirispack
 
 # OS / editors
 .DS_Store
@@ -33,3 +35,4 @@ android/app/src/main/jniLibs/
 # Local
 *.log
 /tmp/
+/dist/

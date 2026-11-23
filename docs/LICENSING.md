@@ -45,6 +45,23 @@ MIT or Apache-2.0 are the usual choices for a portable audio core; choose one
 after deciding whether the project is open source. Until then, treat the
 repository as all-rights-reserved.
 
+## Third-party code
+
+The audio core uses `opus-pure` (BSD-3-Clause) for Ogg/Opus decode and encode.
+Pack archives use `zip` (MIT), `sha2` (MIT/Apache-2.0), and `tempfile`
+(MIT/Apache-2.0). Their copyright notices must ship with binary distributions;
+add them to the in-app attribution/license screen before the first public
+release. Keep the dependency list and notices current as crates are added.
+
+## Content sources
+
+Approved audio sources, license rules, curated searches, and the first-pack plan
+are documented in [`CONTENT_SOURCES.md`](CONTENT_SOURCES.md). In short: use CC0,
+CC BY, and verified public-domain material; avoid NC/ND/SA and custom licenses
+that restrict app use or redistribution. Keep a dated license copy and a source
+log for every master. Per-asset attribution lives in the manifest `credits`
+array and is shown in the app's “Licenses & credits” section.
+
 ## Launch content sources
 
 - Own field recordings (rain, fire, sea, forest).

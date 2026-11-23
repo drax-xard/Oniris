@@ -5,13 +5,26 @@
 **Working name:** Oniris (Oneiros = dream).  
 **Goal:** Mix seamless, non-repetitive soundscapes, run all night on battery, and make new content cheap to add.
 
-**Progress (Nov 2026):** Rust core, pack spec, CLI, JNI, and Android shell are
-implemented and build. The debug APK runs on an Android 36 emulator: pack
-discovery, play/pause, media session, foreground notification, audio focus, and
-wake lock all work. Engine hardening landed on 2026-10-26 — Ogg Opus decode,
-band-limited resampling, a lookahead limiter, and mix crossfades — so the core
-no longer has scaffold-quality audio internals. Real content, the asset
-pipeline, OEM testing, and the 8-hour battery soak remain.
+**Progress (Oct 2026):** Rust core, pack spec, CLI, JNI, Android shell,
+Ogg/Opus decode/encode, deterministic `.onirispack` packaging/extraction, EBU
+R128 loudness/true-peak measurement and normalization, live mix crossfades,
+click-free per-pack gain ramps and pause/resume fades, manifest attribution credits, four generated
+CC0 procedural packs (Pure Noise, Rainy Night, Deep Space Cabin, Enchanted
+Forest), a procedural-only library mode, Android `.onirispack` import, 30-second
+pack previews, per-pack volume, built-in/user presets, live mix changes,
+lock-screen metadata, a Media3 `MediaSessionService`, a Quick Settings tile, and
+a bundled-pack build step are implemented and build. The debug APK runs on an
+Android 36 emulator: pack discovery, play/pause, media session, foreground
+notification, audio focus, and wake lock all work. Real field-recorded content,
+OEM testing, listening QA, and the 8-hour battery soak remain.
+
+**Local QA (Oct 2026):** a 60-minute rain+fire render completes in about 6 s with
+~17 MB peak RSS on the development machine. `oniris-core/tests/golden.rs` covers
+level, brightness, loop continuity, and seed determinism; `oniris analyze`
+reports peak, RMS, max sample delta, and large-jump counts. The engine test suite
+also covers per-pack gain ramps and archive installation; the JNI import path was
+exercised on the host against a generated `.onirispack` (install, decode
+validation, and duplicate rejection).
 
 ## Locked decisions (v1)
 
@@ -65,7 +78,7 @@ Oniris should win on three things:
 - Lock-screen/notification controls and metadata.
 - Audio focus: pause/duck for calls and other media; optional auto-resume.
 - Presets: 4 built-in + user-saved mixes.
-- Pack library with tags, previews, and add/remove.
+- Pack library with tags, previews, and add/remove; `.onirispack` import.
 - Dark AMOLED UI, screen-off friendly.
 - Battery saver behavior, headphone-disconnect handling.
 - Licenses/attribution screen; no network permission required for playback.
@@ -76,7 +89,7 @@ Oniris should win on three things:
 - Adaptive "night curve": packs slowly change level/event density over the night.
 - Randomize mix from tags, with compatibility rules.
 - Quick Settings tile and home-screen widget.
-- Custom pack import (`.onirispack`) and pack validation.
+- Pack download/update flow and richer pack validation/preview tooling.
 - Desktop pack editor/preview CLI.
 - Localization infrastructure (English first).
 - Optional opt-in crash reporting (Play Console vitals only by default).
@@ -171,7 +184,7 @@ Costs and benefits:
 - CPU is dominated by memory reads and a few multiply-adds: well under 2% of one core on modern phones.
 - This is dramatically lighter than running 3–4 ExoPlayer instances with live decoders all night.
 
-The tradeoff is memory and a short load delay when changing mixes. Both are acceptable for this product. If a pack grows beyond the budget, the loader can stream that one bed later without changing the API.
+The tradeoff is memory and a short load delay when changing mixes. Both are acceptable for this product. The engine crossfades live `set_mix` changes over 2 s, so the only audible gap is the time needed to decode newly added packs. If a pack grows beyond the budget, the loader can stream that one bed later without changing the API.
 
 ### 5.3 Why a Rust core
 
@@ -229,14 +242,14 @@ JNI surface stays small:
 
 ### 5.6 Android layer
 
-- **Service:** foreground service with `FOREGROUND_SERVICE_MEDIA_PLAYBACK` and service type `mediaPlayback`. The scaffold uses `MediaSessionCompat`; the production refactor moves to a Media3 `MediaSessionService` with a `SimpleBasePlayer` wrapper.
-- **Player:** a dedicated render thread drives the native engine; Media3 exposes play/pause, live duration, metadata, and custom commands for timer/gain once the adapter lands.
+- **Service:** `MediaSessionService` with `FOREGROUND_SERVICE_MEDIA_PLAYBACK` and service type `mediaPlayback`. A Media3 `SimpleBasePlayer` adapter wraps the Rust engine; Media3 owns the notification, lock-screen controls, media buttons, and foreground lifecycle.
+- **Player:** a dedicated render thread drives the native engine; Media3 exposes play/pause/stop, metadata, and the active mix name.
 - **Audio:** `AudioTrack` streaming, `ENCODING_PCM_16BIT`, 48 kHz stereo, `PERFORMANCE_MODE_POWER_SAVING` (API 26+), music stream, buffer 2×4096 frames, `WRITE_BLOCKING`.
 - **Thread:** dedicated render thread at `THREAD_PRIORITY_URGENT_AUDIO`; it owns the audio loop and `AudioTrack.write`.
 - **Focus:** `AudioFocusRequest` with `AUDIOFOCUS_GAIN`; duck to 20% on transient-can-duck; pause on loss; resume only if it was playing. Do not fight other media.
 - **Becoming noisy:** pause when headphones are unplugged by default (configurable), to avoid blasting a speaker at night.
 - **Wake lock:** acquire a named `PARTIAL_WAKE_LOCK` only while playing if testing shows it is needed; release on pause/stop/destroy. Audio playback may already hold an audio-HAL wake lock, but verify on real devices.
-- **Notification:** media-style notification with play/pause/stop; update only on state changes, not per second. Timer remaining and pack art are not shown yet.
+- **Notification:** media-style notification with play/pause/stop and the active mix name as metadata; update only on state changes, not per second. Timer remaining and pack art are not shown yet.
 - **Lifecycle:** if the process dies, do not silently restart audio. Persist "was playing" and let the user resume; use `START_NOT_STICKY` unless testing shows a need otherwise.
 - **Permissions:** `POST_NOTIFICATIONS` (Android 13+) requested in context; `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_MEDIA_PLAYBACK`; no storage permission (app-private packs); no location; no network for bundled playback.
 - **Battery optimization:** provide a help screen for OEMs that kill background apps; media foreground services are usually exempt, but Samsung/Xiaomi/Oppo need testing.
@@ -299,11 +312,19 @@ Rules:
 - All audio 48 kHz; beds stereo; events mono or stereo.
 - `loop.endSample` is authoritative; the engine ignores container padding.
 - Packs are data, not code. Validate paths (zip-slip), sizes, sample rates, loop bounds, and JSON schema. Reject unknown schema major versions.
-- Manifest is versioned; the loader supports `schemaVersion` 1 and migrates where possible.
+- `.onirispack` archives are deterministic zips with fixed timestamps and sorted entries. `oniris-cli pack`, `verify-pack`, and `unpack` implement the format and the security checks; compute the SHA-256 printed by `pack` for download manifests.
+- Manifest is versioned; the loader supports `schemaVersion` 1 and migrates where possible. A machine-readable Draft 2020-12 schema lives in [`manifest.schema.json`](manifest.schema.json), and generated packs are checked against it in review/CI.
 - Tags drive search, suggestions, and compatibility rules. Add content flags (`thunder`, `animals`) for user warnings.
 - Optional `compatibility` field to prevent clashing mixes (e.g., `excludes: ["underwater"]`).
 
 ### 5.8 Content pipeline
+
+Source and license research for the first packs is in
+[`CONTENT_SOURCES.md`](CONTENT_SOURCES.md). It lists approved sources, excluded
+licenses, curated Freesound searches, and a proposed first five packs.
+Procedural synthesis is assessed in
+[`PROCEDURAL_AUDIO.md`](PROCEDURAL_AUDIO.md): use it for support layers and
+variation, not as a replacement for recorded beds.
 
 Python (NumPy, SoundFile, pyloudnorm, ffmpeg) or a Rust CLI:
 
@@ -311,7 +332,12 @@ Python (NumPy, SoundFile, pyloudnorm, ffmpeg) or a Rust CLI:
 2. Trim silence, remove DC offset, denoise manually where needed.
 3. Choose loop region; apply equal-power crossfade of tail into head; verify periodicity for wave/fire rhythms.
 4. Normalize bed to -23 LUFS integrated; normalize events relative to the bed; limit to -1.5 dBTP.
-5. Encode Opus: 96 kbps stereo beds, 64 kbps mono events, 48 kHz, 20 ms frames.
+   `oniris-cli loudness` measures BS.1770 integrated LUFS and 4x-oversampled true
+   peak; `oniris-cli normalize` applies a single gain that respects the true-peak
+   ceiling. Use it as the measurement of record before final listening QA.
+5. Encode Opus: 96 kbps stereo beds, 64 kbps mono events, 48 kHz, 20 ms
+   frames. `oniris-cli encode-opus` already writes gapless files; the Python
+   pipeline should call it for consistency.
 6. Generate/validate manifest; compute checksums; render a 60 s preview with the core.
 7. QA: listen on phone speaker, wired headphones, Bluetooth; loop 100×; check clicks, hum, hiss, thunder spikes.
 8. Package `.onirispack`.
@@ -444,8 +470,8 @@ Samsung, Xiaomi, Oppo, and OnePlus aggressively kill background work. A media fo
 
 ### 9.1 Automated
 
-- **Rust unit tests:** manifest parsing/validation, loop bounds, gain ramps, scheduler determinism with seeds, timer math, limiter.
-- **Golden audio tests:** render fixed seeds; compare RMS, spectral centroid, and peak within tolerance; assert no discontinuities above a threshold at loop/fade boundaries.
+- **Rust unit tests:** manifest parsing/validation, loop bounds, gain ramps, scheduler determinism with seeds, timer math, limiter, Opus/WAV decode and pre-skip/end-trim handling, resampler level/alias rejection, loudness gating and true peak.
+- **Golden audio tests:** render fixed seeds; compare RMS, spectral centroid, and peak within tolerance; assert no discontinuities above a threshold at loop/fade boundaries. Implemented in `oniris-core/tests/golden.rs`; `oniris analyze` reports max sample delta and large-jump counts for manual render QA.
 - **Fuzz:** manifest JSON and zip extraction (paths, sizes, malformed Opus).
 - **JNI round-trip:** create/load/mix/render/destroy; error paths.
 - **Android instrumentation:** service lifecycle, notification, audio focus loss/gain, timer stop, process death restore, headphone disconnect.
@@ -514,11 +540,21 @@ Assumes one developer working roughly full-time, with content sourcing in parall
 **Beta:** week 13.  
 **Launch:** week 15.
 
-**Scaffold progress:** phase 0 (spike), phase 1 (core, now including Opus,
-band-limited resampling, lookahead limiting, and mix crossfade), and phase 2
-(playback spine) are done. Phase 3 (mixer UX) has pack selection, master volume,
-and the timer; presets, per-pack volume, lock-screen metadata, and a quick tile
-are open. Phase 4 (content) has not started beyond synthetic test packs.
+**Scaffold progress:** phase 0 (spike), phase 1 (core plus Ogg/Opus), and phase 2
+(playback spine) are substantially done; 60-minute listening QA is still open.
+Phase 3 (mixer UX) now has pack selection, 30-second previews, per-pack and master volume, the timer,
+built-in and user-saved presets, live mix control, lock-screen metadata, and a
+Quick Settings tile.
+Phase 4 (content) uses the Opus encoder, `.onirispack` packer, loudness/normalize
+tools, Android importer, and bundled-pack build step; the remaining distribution
+work is optional in-app downloads. Pure Noise, Rainy Night, Deep Space Cabin,
+Enchanted Forest, and Windy Sea Voyage are generated from the CLI, bundled into
+the APK by `make android`, and can also be imported; the field-recorded Rainy
+Night, Seaside, Cabin Fire, and Forest Deep packs are next.
+
+**Desktop track:** a macOS/Linux shell is planned as a separate workstream. It
+reuses the Rust core and pack format with iced + cpal; see
+[`DESKTOP.md`](DESKTOP.md). It is not part of the Android critical path.
 
 Content sourcing and licensing start in week 1; they are the most likely schedule risk.
 
@@ -578,12 +614,12 @@ Still open:
 
 ## 15. First 10 concrete tasks
 
-1. [x] Write `docs/PACK_FORMAT.md` v0; the JSON Schema is still to add.
+1. [x] Write `docs/PACK_FORMAT.md` v0; add `docs/manifest.schema.json` (Draft 2020-12).
 2. [x] Create the Rust workspace skeleton and a CLI that renders a test loop to WAV.
 3. [x] Generate synthetic rain/fire beds and events; loop points and crossfades work.
 4. [x] Implement the mixer + scheduler; 60-minute listening QA is still pending.
 5. [x] Spike JNI + `AudioTrack` (emulator); real-device CPU/underrun measurement pending.
-6. [x] Spike a media session + foreground service; Media3 adapter is a later refactor.
+6. [x] Spike a media session + foreground service; replace the compatibility session with Media3 `MediaSessionService`/`SimpleBasePlayer`.
 7. [ ] Run a 1-hour battery baseline; extrapolate to 8 hours.
 8. [x] Build the Compose shell: library, mixer, timer, now playing.
 9. [x] Bundled-pack extraction and app-private storage.
