@@ -10,7 +10,7 @@ The audio engine is written in Rust so the same sound model can run on Android t
 
 - Rust core: manifest validation, Ogg Opus + WAV decode, band-limited resampling, seamless bed loops, randomized event voices, LFOs, fades, sleep timer, lookahead limiter, crossfade on mix change.
 - `oniris` CLI: generate synthetic test packs, validate, render, analyze.
-- Android app: pack library, multi-pack selection, volume, sleep timer, foreground media notification, audio focus, wake lock, persisted settings.
+- Android app: side-navigation shell with Play, Library, Mixer, Timer, and Settings screens; per-pack trims, multi-pack selection, sleep timer, foreground media notification, audio focus, wake lock, persisted settings.
 - Native library builds for `arm64-v8a`, `armeabi-v7a`, and `x86_64`; debug and release APKs assemble.
 
 Smoke-tested on an Android 36 x86_64 emulator: pack discovery, play/pause, media-session state, foreground notification, and wake-lock acquire/release all work. On-device battery and audio soak tests are still pending.

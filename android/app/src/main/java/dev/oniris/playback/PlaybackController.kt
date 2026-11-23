@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import kotlin.math.log10
 
 data class PackSelection(val id: String, val dir: File)
 
@@ -33,6 +34,7 @@ object PlaybackController {
     private var loadedSelections: List<PackSelection> = emptyList()
     private var masterGain: Float = 0.8f
     private var timerMinutes: Int = 0
+    private var packGains: Map<String, Float> = emptyMap()
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
@@ -75,6 +77,7 @@ object PlaybackController {
             current.close()
             current = NativeEngine()
             engine = current
+            loadedSelections = emptyList()
             if (!current.available) return fail("Native engine is not built for this device")
 
             for (selection in selections) {
@@ -92,7 +95,7 @@ object PlaybackController {
                             put(
                                 JSONObject()
                                     .put("id", selection.id)
-                                    .put("gainDb", 0.0)
+                                    .put("gainDb", linearToDb(packGains[selection.id] ?: 1f))
                                     .put("muted", false),
                             )
                         }
@@ -157,6 +160,29 @@ object PlaybackController {
             engine?.setPackGainDb(id, gainDb)
         }
     }
+
+    /**
+     * Per-pack linear trims, keyed by pack id. Applied to the running engine
+     * immediately and baked into the mix JSON the next time packs load.
+     *
+     * Only ids the engine actually has loaded are pushed: the JNI layer rejects
+     * unknown ids, and settings can legitimately name a pack that is not part
+     * of the current mix (or was uninstalled).
+     */
+    fun setPackGains(gains: Map<String, Float>) {
+        synchronized(lock) {
+            packGains = gains
+            val engine = engine ?: return
+            if (loadedSelections.isEmpty()) return
+            val loadedIds = loadedSelections.map { it.id }.toSet()
+            gains.forEach { (id, gain) ->
+                if (id in loadedIds) engine.setPackGainDb(id, linearToDb(gain))
+            }
+        }
+    }
+
+    private fun linearToDb(gain: Float): Float =
+        if (gain <= 0.001f) -60f else 20f * log10(gain.toDouble()).toFloat()
 
     fun setSleepTimer(minutes: Int) {
         synchronized(lock) {

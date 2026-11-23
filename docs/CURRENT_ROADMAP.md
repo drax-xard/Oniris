@@ -70,7 +70,10 @@ Ordered by logical dependency: engine → content → UX → reliability → lau
 **Goal:** Hit every P0/P1 feature in the v1.0/1.1 scope.
 
 - [ ] **3.1 Mixer & library**
-  - [ ] Per-pack volume sliders with live gain update via `setPackGainDb`.
+  - [x] Per-pack volume sliders with live gain update via `setPackGainDb`
+        (2026-11-23, persisted in `DataStore`).
+  - [x] One screen per concern behind a side navigation drawer — Play, Library,
+        Mixer, Timer, Settings; permanent drawer ≥600 dp (2026-11-23).
   - [ ] Add/remove packs, tag-based filtering, pack preview (10 s render).
 - [ ] **3.2 Presets & last-mix restore**
   - [ ] 4 built-in presets.

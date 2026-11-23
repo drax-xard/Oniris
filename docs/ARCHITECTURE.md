@@ -100,6 +100,10 @@ budget before starting.
 
 ## Android shell
 
+- **Navigation:** five destinations (Play, Library, Mixer, Timer, Settings) in a
+  Material 3 `NavigationDrawer` — modal with a hamburger on compact widths,
+  permanent at ≥600 dp. Screens are stateless; the shell owns settings, pack
+  state, and the effects that drive `PlaybackController`.
 - **Service:** foreground service with `mediaPlayback` type and a
   `MediaSessionCompat`. The scaffold uses the compatibility session because the
   custom engine is not an ExoPlayer `Player`; a Media3 `SimpleBasePlayer` adapter

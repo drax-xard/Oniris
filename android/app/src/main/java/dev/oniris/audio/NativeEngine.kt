@@ -25,17 +25,23 @@ class NativeEngine(sampleRate: Int = 48_000) : AutoCloseable {
         }
     }
 
+    /**
+     * The native side raises a Java exception instead of returning a code on
+     * error (for example an id that is not loaded), so every code-returning
+     * call is wrapped: the bridge contract is Boolean, never a throw.
+     */
     @Synchronized
     fun loadPack(path: String): Boolean =
-        handle != 0L && nativeLoadPack(handle, path) == 0
+        handle != 0L && runCatching { nativeLoadPack(handle, path) == 0 }.getOrDefault(false)
 
     @Synchronized
     fun setMix(json: String): Boolean =
-        handle != 0L && nativeSetMix(handle, json) == 0
+        handle != 0L && runCatching { nativeSetMix(handle, json) == 0 }.getOrDefault(false)
 
     @Synchronized
     fun setPackGainDb(id: String, gainDb: Float): Boolean =
-        handle != 0L && nativeSetPackGain(handle, id, gainDb) == 0
+        handle != 0L &&
+            runCatching { nativeSetPackGain(handle, id, gainDb) == 0 }.getOrDefault(false)
 
     @Synchronized
     fun setMasterGain(gain: Float) {
