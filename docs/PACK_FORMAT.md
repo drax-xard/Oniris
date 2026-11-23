@@ -92,7 +92,7 @@ Rules:
 | Field | Required | Notes |
 |---|---|---|
 | `id` | yes | Unique within the pack. |
-| `file` | yes | Safe relative path. WAV in the scaffold; Opus in production. |
+| `file` | yes | Safe relative path. Ogg Opus (`.opus`/`.ogg`/`.oga`) or WAV. |
 | `loop.startSample` | yes | Source-rate sample index; inclusive. |
 | `loop.endSample` | yes | Source-rate sample index; exclusive. Loop length 1 s–10 min. |
 | `gainDb` | no | -60..6 dB; default 0. |
@@ -132,8 +132,14 @@ localized sounds and narrow ranges for thunder/rumble.
 - Loudness: beds normalized to -23 LUFS integrated; events balanced relative to
   the bed; true peak ≤ -1.5 dBTP.
 
-**Scaffold:** the current decoder reads WAV only. `decode_audio()` is the single
-extension point for Opus. Do not ship production content as WAV.
+**Engine support:** Ogg Opus and WAV both decode at load. `decode_audio()` routes
+`.opus`/`.ogg`/`.oga` through the Opus decoder, which honours `pre-skip` and the
+final granule position, so encoder padding never becomes audible and loop points
+line up with the source. WAV is for generated/dev packs only — do not ship
+production content as WAV.
+
+Opus always decodes at 48 kHz, so `loop.startSample`/`endSample` in an Opus pack
+are 48 kHz indices; the loader scales them if the engine runs at another rate.
 
 ## Safety and validation
 

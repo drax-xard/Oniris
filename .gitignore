@@ -22,6 +22,7 @@ android/app/src/main/jniLibs/
 *.opus
 *.ogg
 *.flac
+!core/oniris-core/tests/fixtures/*.opus
 
 # OS / editors
 .DS_Store

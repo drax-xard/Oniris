@@ -4,11 +4,11 @@ Oniris is a battery-first Android sleep-soundscape app. It mixes seamless ambien
 
 The audio engine is written in Rust so the same sound model can run on Android today and on desktop, Raspberry Pi, or the web later.
 
-**Status:** early scaffold. The Rust core, pack format, CLI, and Android shell are in place, and the Android debug APK builds with JDK 21 + SDK 36. The first real sound packs and the production Opus decoder are next.
+**Status:** engine hardening complete, content and device validation next. The Rust core, pack format, CLI, and Android shell are in place, and the Android debug APK builds with JDK 21 + SDK 36. Both Ogg Opus and WAV packs load; the limiter, resampler, and mix crossfade are production-grade. The first real sound packs, the asset pipeline, and on-device battery/underrun measurement are next.
 
 ## What works today
 
-- Rust core: manifest validation, WAV decode/resample, seamless bed loops, randomized event voices, LFOs, fades, sleep timer, limiter.
+- Rust core: manifest validation, Ogg Opus + WAV decode, band-limited resampling, seamless bed loops, randomized event voices, LFOs, fades, sleep timer, lookahead limiter, crossfade on mix change.
 - `oniris` CLI: generate synthetic test packs, validate, render, analyze.
 - Android app: pack library, multi-pack selection, volume, sleep timer, foreground media notification, audio focus, wake lock, persisted settings.
 - Native library builds for `arm64-v8a`, `armeabi-v7a`, and `x86_64`; debug and release APKs assemble.
@@ -57,7 +57,10 @@ cargo run --manifest-path core/Cargo.toml -p oniris-cli -- \
 cargo run --manifest-path core/Cargo.toml -p oniris-cli -- analyze /tmp/oniris-test.wav
 ```
 
-The generated test packs use WAV so the scaffold works without native codec dependencies. Production packs will be Opus; the decoder is behind an explicit trait so it can be added without changing the mixer.
+The generated test packs use WAV. Production packs are Ogg Opus: `decode_audio()`
+dispatches on extension, so a pack can ship either format and the mixer does not
+care. The Opus path honours `pre-skip` and the final granule position, and falls
+back to Opus PLC if a packet is missing.
 
 ## Android build
 

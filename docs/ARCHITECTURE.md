@@ -105,7 +105,9 @@ budget before starting.
   custom engine is not an ExoPlayer `Player`; a Media3 `SimpleBasePlayer` adapter
   is a later refactor.
 - **Audio:** `AudioTrack` streaming, 48 kHz stereo, PCM 16-bit,
-  `PERFORMANCE_MODE_POWER_SAVING` (API 26+).
+  `PERFORMANCE_MODE_POWER_SAVING` (API 26+). The native master limiter adds a
+  fixed 5 ms of latency; `Engine::output_latency_frames()` reports it for buffer
+  sizing and underrun analysis.
 - **Audio focus:** pause on loss, duck on transient-can-duck, resume only if
   playback was active.
 - **Becoming noisy:** pause when headphones disconnect (default).
@@ -127,14 +129,16 @@ The core has no Android types. The JNI crate is a thin shim; a C header can be
 generated for other platforms. Pack parsing and the asset pipeline are
 platform-neutral.
 
-## Known scaffold gaps
+## Known gaps
 
-- Opus/Vorbis decode (WAV only today).
 - Media3 `SimpleBasePlayer` adapter (using `MediaSessionCompat`).
-- Lookahead limiter (instant-attack limiter today).
-- High-quality resampler (linear today).
-- Crossfade when changing mixes while playing.
 - Download manager, pack import UI, and bundled pack installation.
 - Real content and loudness normalization pipeline.
+- Presets, per-pack volume, lock-screen metadata, quick tile.
+- On-device battery/underrun measurement and the 8-hour soak.
+
+Engine-side scaffold gaps — Opus decode, lookahead limiting, band-limited
+resampling, and mix crossfade — are closed (2026-10-26); see
+`docs/CURRENT_ROADMAP.md` for the current status and task tree.
 
 These are tracked in `docs/DEVELOPMENT_PLAN.md`.

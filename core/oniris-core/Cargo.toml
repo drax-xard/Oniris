@@ -7,6 +7,8 @@ rust-version.workspace = true
 [dependencies]
 oniris-pack = { path = "../oniris-pack" }
 hound.workspace = true
+ogg.workspace = true
+opus-decoder.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
 serde.workspace = true

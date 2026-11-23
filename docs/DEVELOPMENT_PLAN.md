@@ -5,11 +5,13 @@
 **Working name:** Oniris (Oneiros = dream).  
 **Goal:** Mix seamless, non-repetitive soundscapes, run all night on battery, and make new content cheap to add.
 
-**Progress (Oct 2026):** Rust core, pack spec, CLI, JNI, and Android shell are
+**Progress (Nov 2026):** Rust core, pack spec, CLI, JNI, and Android shell are
 implemented and build. The debug APK runs on an Android 36 emulator: pack
 discovery, play/pause, media session, foreground notification, audio focus, and
-wake lock all work. Opus decode, real content, OEM testing, and the 8-hour
-battery soak remain.
+wake lock all work. Engine hardening landed on 2026-10-26 — Ogg Opus decode,
+band-limited resampling, a lookahead limiter, and mix crossfades — so the core
+no longer has scaffold-quality audio internals. Real content, the asset
+pipeline, OEM testing, and the 8-hour battery soak remain.
 
 ## Locked decisions (v1)
 
@@ -512,10 +514,11 @@ Assumes one developer working roughly full-time, with content sourcing in parall
 **Beta:** week 13.  
 **Launch:** week 15.
 
-**Scaffold progress:** phase 0 (spike), phase 1 (core minus Opus), and phase 2
-(playback spine) are substantially done. Phase 3 (mixer UX) has pack selection,
-master volume, and the timer; presets, per-pack volume, lock-screen metadata,
-and a quick tile are open.
+**Scaffold progress:** phase 0 (spike), phase 1 (core, now including Opus,
+band-limited resampling, lookahead limiting, and mix crossfade), and phase 2
+(playback spine) are done. Phase 3 (mixer UX) has pack selection, master volume,
+and the timer; presets, per-pack volume, lock-screen metadata, and a quick tile
+are open. Phase 4 (content) has not started beyond synthetic test packs.
 
 Content sourcing and licensing start in week 1; they are the most likely schedule risk.
 

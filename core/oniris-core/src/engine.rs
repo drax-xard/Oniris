@@ -14,6 +14,8 @@ use crate::mix::MixSpec;
 
 pub const DEFAULT_MEMORY_LIMIT: usize = 96 * 1024 * 1024;
 pub const DEFAULT_BLOCK_FRAMES: usize = 4096;
+/// Crossfade applied when the active mix changes during playback.
+pub const MIX_CROSSFADE_MS: u32 = 80;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransportState {
@@ -94,6 +96,9 @@ struct ActivePack {
     bed_positions: Vec<usize>,
     bed_lfo_phases: Vec<f32>,
     event_delays: Vec<u64>,
+    fade: GainFade,
+    /// Old layer that is fading out after a mix change.
+    fading_out: bool,
 }
 
 #[derive(Debug)]
@@ -108,6 +113,70 @@ struct EventVoice {
     fade_in: usize,
     fade_out: usize,
     total: usize,
+    /// Fades the voice when its pack leaves the mix.
+    fade: GainFade,
+}
+
+/// Linear gain ramp used for mix crossfades. `remaining == 0` means steady.
+#[derive(Debug, Clone, Copy)]
+struct GainFade {
+    gain: f32,
+    step: f32,
+    remaining: u32,
+    target: f32,
+}
+
+impl GainFade {
+    fn steady(gain: f32) -> Self {
+        Self {
+            gain,
+            step: 0.0,
+            remaining: 0,
+            target: gain,
+        }
+    }
+
+    fn ramp(from: f32, to: f32, frames: u32) -> Self {
+        if frames == 0 {
+            Self::steady(to)
+        } else {
+            Self {
+                gain: from,
+                step: (to - from) / frames as f32,
+                remaining: frames,
+                target: to,
+            }
+        }
+    }
+
+    fn gain_at(&self, frame: usize) -> f32 {
+        if self.remaining == 0 {
+            self.gain
+        } else {
+            (self.gain + self.step * frame as f32).clamp(0.0, 1.0)
+        }
+    }
+
+    fn advance(&mut self, frames: usize) {
+        if self.remaining == 0 {
+            return;
+        }
+        let frames = frames.min(self.remaining as usize) as u32;
+        self.gain += self.step * frames as f32;
+        self.remaining -= frames;
+        if self.remaining == 0 {
+            self.gain = self.target;
+            self.step = 0.0;
+        }
+    }
+
+    fn is_finished(&self) -> bool {
+        self.remaining == 0
+    }
+
+    fn is_silent(&self) -> bool {
+        self.remaining == 0 && self.gain <= 1e-4
+    }
 }
 
 pub struct Engine {
@@ -188,7 +257,7 @@ impl Engine {
     }
 
     pub fn active_pack_count(&self) -> usize {
-        self.active.len()
+        self.active.iter().filter(|pack| !pack.fading_out).count()
     }
 
     pub fn decoded_bytes(&self) -> usize {
@@ -330,8 +399,16 @@ impl Engine {
     }
 
     /// Replace the active mix. All pack ids must already be loaded.
+    ///
+    /// While playing, the old layers fade out and the new layers fade in over
+    /// [`MIX_CROSSFADE_MS`]; loop positions are preserved for unchanged packs
+    /// only if `set_mix` is not called again. No allocation or decoding happens
+    /// here beyond building the new layer state.
     pub fn set_mix(&mut self, mix: &MixSpec) -> Result<(), EngineError> {
+        let crossfade = self.is_playing();
+        let fade_frames = ms_to_frames(MIX_CROSSFADE_MS, self.sample_rate).max(1);
         let mut active = Vec::new();
+        let mut requested = HashSet::new();
         let mut seen = HashSet::new();
 
         for entry in &mix.packs {
@@ -349,6 +426,7 @@ impl Engine {
             if entry.muted {
                 continue;
             }
+            requested.insert(entry.id.clone());
 
             let mut bed_positions = Vec::with_capacity(pack.beds.len());
             let mut bed_lfo_phases = Vec::with_capacity(pack.beds.len());
@@ -371,11 +449,37 @@ impl Engine {
                 bed_positions,
                 bed_lfo_phases,
                 event_delays,
+                fade: if crossfade {
+                    GainFade::ramp(0.0, 1.0, fade_frames)
+                } else {
+                    GainFade::steady(1.0)
+                },
+                fading_out: false,
             });
         }
 
-        self.active = active;
-        self.voices.clear();
+        if crossfade {
+            // Keep the previous layers running for the duration of the fade.
+            for layer in &mut self.active {
+                if layer.fading_out {
+                    continue;
+                }
+                layer.fading_out = true;
+                layer.fade = GainFade::ramp(layer.fade.gain_at(0), 0.0, fade_frames);
+            }
+            // Voices belonging to packs that left the mix fade with their layer
+            // instead of being cut abruptly.
+            for voice in &mut self.voices {
+                if !requested.contains(&voice.pack_id) {
+                    voice.fade = GainFade::ramp(voice.fade.gain_at(0), 0.0, fade_frames);
+                }
+            }
+            self.active.extend(active);
+        } else {
+            self.active = active;
+            self.voices.clear();
+        }
+
         self.master_gain = mix.master_gain.clamp(0.0, 1.5);
         Ok(())
     }
@@ -383,7 +487,7 @@ impl Engine {
     pub fn set_pack_gain(&mut self, id: &str, gain: f32) -> Result<(), EngineError> {
         let mut found = false;
         for pack in &mut self.active {
-            if pack.pack.manifest.id == id {
+            if !pack.fading_out && pack.pack.manifest.id == id {
                 pack.gain = gain.clamp(0.0, 2.0);
                 found = true;
             }
@@ -513,42 +617,46 @@ impl Engine {
 
         for active in &mut self.active {
             let pack = &active.pack;
+            let layer_fade = active.fade;
 
             // Event scheduling happens at block boundaries. A block is ~85 ms
             // at 48 kHz, which is far below the perceptual threshold for
-            // thunder/fire crackles.
-            for (index, event) in pack.events.iter().enumerate() {
-                let delay = &mut active.event_delays[index];
-                if *delay <= frames as u64 {
-                    let sounding = voices
-                        .iter()
-                        .filter(|voice| {
-                            voice.pack_id == pack.manifest.id && voice.event_id == event.id
-                        })
-                        .count();
+            // thunder/fire crackles. Fading layers do not spawn new events.
+            if !active.fading_out && layer_fade.is_finished() {
+                for (index, event) in pack.events.iter().enumerate() {
+                    let delay = &mut active.event_delays[index];
+                    if *delay <= frames as u64 {
+                        let sounding = voices
+                            .iter()
+                            .filter(|voice| {
+                                voice.pack_id == pack.manifest.id && voice.event_id == event.id
+                            })
+                            .count();
 
-                    if sounding < event.max_voices as usize {
-                        let file = &event.files[rng.gen_range(0..event.files.len())];
-                        let gain_db = rng.gen_range(event.gain_db[0]..=event.gain_db[1]);
-                        let pan = rng.gen_range(event.pan[0]..=event.pan[1]);
-                        let (pan_l, pan_r) = pan_gains(pan);
-                        voices.push(EventVoice {
-                            pack_id: pack.manifest.id.clone(),
-                            event_id: event.id.clone(),
-                            audio: file.clone(),
-                            position: 0,
-                            gain: db_to_linear(gain_db),
-                            pan_l,
-                            pan_r,
-                            fade_in: event.fade_in_frames as usize,
-                            fade_out: event.fade_out_frames as usize,
-                            total: file.frames,
-                        });
+                        if sounding < event.max_voices as usize {
+                            let file = &event.files[rng.gen_range(0..event.files.len())];
+                            let gain_db = rng.gen_range(event.gain_db[0]..=event.gain_db[1]);
+                            let pan = rng.gen_range(event.pan[0]..=event.pan[1]);
+                            let (pan_l, pan_r) = pan_gains(pan);
+                            voices.push(EventVoice {
+                                pack_id: pack.manifest.id.clone(),
+                                event_id: event.id.clone(),
+                                audio: file.clone(),
+                                position: 0,
+                                gain: db_to_linear(gain_db),
+                                pan_l,
+                                pan_r,
+                                fade_in: event.fade_in_frames as usize,
+                                fade_out: event.fade_out_frames as usize,
+                                total: file.frames,
+                                fade: GainFade::steady(1.0),
+                            });
+                        }
+
+                        *delay = rng.gen_range(event.min_frames..=event.max_frames);
+                    } else {
+                        *delay -= frames as u64;
                     }
-
-                    *delay = rng.gen_range(event.min_frames..=event.max_frames);
-                } else {
-                    *delay -= frames as u64;
                 }
             }
 
@@ -563,10 +671,12 @@ impl Engine {
                         let left_gain = base_gain * base_l * I16_SCALE;
                         let right_gain = base_gain * base_r * I16_SCALE;
                         for frame in 0..frames {
+                            let layer_gain = layer_fade.gain_at(frame);
                             let sample = *position * 2;
-                            scratch[frame * 2] += bed.audio.samples[sample] as f32 * left_gain;
+                            scratch[frame * 2] +=
+                                bed.audio.samples[sample] as f32 * left_gain * layer_gain;
                             scratch[frame * 2 + 1] +=
-                                bed.audio.samples[sample + 1] as f32 * right_gain;
+                                bed.audio.samples[sample + 1] as f32 * right_gain * layer_gain;
 
                             *position += 1;
                             if *position >= bed.loop_end {
@@ -576,6 +686,7 @@ impl Engine {
                     }
                     Some(lfo) => {
                         for frame in 0..frames {
+                            let layer_gain = layer_fade.gain_at(frame);
                             let modulation = (*phase).sin() * lfo.depth;
                             let (left_gain, right_gain) = match lfo.target {
                                 LfoTarget::Gain => {
@@ -592,9 +703,10 @@ impl Engine {
                             };
 
                             let sample = *position * 2;
-                            scratch[frame * 2] += bed.audio.samples[sample] as f32 * left_gain;
+                            scratch[frame * 2] +=
+                                bed.audio.samples[sample] as f32 * left_gain * layer_gain;
                             scratch[frame * 2 + 1] +=
-                                bed.audio.samples[sample + 1] as f32 * right_gain;
+                                bed.audio.samples[sample + 1] as f32 * right_gain * layer_gain;
 
                             *position += 1;
                             if *position >= bed.loop_end {
@@ -609,22 +721,29 @@ impl Engine {
                     }
                 }
             }
+
+            active.fade.advance(frames);
         }
+
+        // Drop layers whose fade-out has completed.
+        self.active
+            .retain(|active| !(active.fading_out && active.fade.is_silent()));
 
         let mut voice_index = 0;
         while voice_index < voices.len() {
             let voice = &mut voices[voice_index];
-            if voice.position >= voice.total {
+            if voice.position >= voice.total || voice.fade.is_silent() {
                 voices.swap_remove(voice_index);
                 continue;
             }
 
             let count = (voice.total - voice.position).min(frames);
             let channels = voice.audio.channels as usize;
+            let voice_fade = voice.fade;
             for frame in 0..count {
                 let position = voice.position + frame;
                 let envelope = fade_envelope(position, voice.total, voice.fade_in, voice.fade_out);
-                let gain = voice.gain * envelope * I16_SCALE;
+                let gain = voice.gain * envelope * I16_SCALE * voice_fade.gain_at(frame);
                 let base = position * channels;
 
                 if channels == 1 {
@@ -639,7 +758,8 @@ impl Engine {
             }
 
             voice.position += count;
-            if voice.position >= voice.total {
+            voice.fade.advance(count);
+            if voice.position >= voice.total || voice.fade.is_silent() {
                 voices.swap_remove(voice_index);
             } else {
                 voice_index += 1;
@@ -729,6 +849,14 @@ impl Engine {
         DEFAULT_BLOCK_FRAMES
     }
 
+    /// Samples of latency the master limiter adds to the rendered signal.
+    ///
+    /// Shells can use this when sizing output buffers or interpreting underrun
+    /// counts; it is a fixed 5 ms at any sample rate.
+    pub fn output_latency_frames(&self) -> usize {
+        self.limiter.latency_frames()
+    }
+
     pub fn sample_rate_f32(&self) -> f32 {
         self.sample_rate as f32
     }
@@ -809,6 +937,10 @@ mod tests {
     }
 
     fn make_pack(dir: &Path, bed_frames: usize, event_frames: usize) {
+        make_pack_with_id(dir, "test-pack", bed_frames, event_frames);
+    }
+
+    fn make_pack_with_id(dir: &Path, id: &str, bed_frames: usize, event_frames: usize) {
         fs::create_dir_all(dir.join("audio")).unwrap();
         let bed: Vec<i16> = (0..bed_frames)
             .flat_map(|_| [8_000i16, -8_000i16])
@@ -820,7 +952,7 @@ mod tests {
 
         let manifest = serde_json::json!({
             "schemaVersion": 1,
-            "id": "test-pack",
+            "id": id,
             "name": { "en": "Test Pack" },
             "version": "0.1.0",
             "license": "CC0-1.0",
@@ -849,6 +981,58 @@ mod tests {
         .unwrap();
     }
 
+    fn make_dc_pack(dir: &Path, id: &str, level: i16, frames: usize) {
+        fs::create_dir_all(dir.join("audio")).unwrap();
+        let bed: Vec<i16> = std::iter::repeat_n(level, frames)
+            .flat_map(|sample| [sample, sample])
+            .collect();
+        write_wav(&dir.join("audio/bed.wav"), 48_000, 2, &bed);
+        let manifest = serde_json::json!({
+            "schemaVersion": 1,
+            "id": id,
+            "name": { "en": "DC Pack" },
+            "version": "0.1.0",
+            "license": "CC0-1.0",
+            "beds": [{
+                "id": "bed",
+                "file": "audio/bed.wav",
+                "loop": { "startSample": 0, "endSample": frames },
+                "gainDb": 0.0
+            }]
+        });
+        fs::write(
+            dir.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+    }
+
+    fn mix(entries: &[(&str, f32)]) -> MixSpec {
+        MixSpec::new(
+            entries
+                .iter()
+                .map(|(id, gain_db)| MixEntry {
+                    id: (*id).to_string(),
+                    gain_db: *gain_db,
+                    muted: false,
+                })
+                .collect(),
+        )
+    }
+
+    fn load_and_play(engine: &mut Engine, mix_spec: &MixSpec, dir: &Path) -> String {
+        let id = engine.load_pack(dir).unwrap();
+        engine.set_mix(mix_spec).unwrap();
+        engine.play();
+        id
+    }
+
+    fn peak_abs(samples: &[i16]) -> f32 {
+        samples.iter().fold(0.0f32, |peak, sample| {
+            peak.max(sample.abs() as f32 / 32767.0)
+        })
+    }
+
     #[test]
     fn loads_and_renders_a_pack() {
         let dir = tempfile::tempdir().unwrap();
@@ -860,13 +1044,7 @@ mod tests {
         assert_eq!(id, "test-pack");
         assert!(engine.decoded_bytes() > 0);
 
-        engine
-            .set_mix(&MixSpec::new(vec![MixEntry {
-                id: id.clone(),
-                gain_db: 0.0,
-                muted: false,
-            }]))
-            .unwrap();
+        engine.set_mix(&mix(&[("test-pack", 0.0)])).unwrap();
         engine.play();
 
         let mut out = vec![0i16; 48_000 * 2];
@@ -874,6 +1052,116 @@ mod tests {
         assert_eq!(stats.frames_written, 48_000);
         assert!(stats.peak > 0.1);
         assert!(!stats.finished);
+    }
+
+    #[test]
+    fn loads_and_renders_an_opus_pack() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("audio")).unwrap();
+        fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tone-stereo.opus"),
+            dir.path().join("audio/bed.opus"),
+        )
+        .unwrap();
+        let manifest = serde_json::json!({
+            "schemaVersion": 1,
+            "id": "opus-pack",
+            "name": { "en": "Opus Pack" },
+            "version": "0.1.0",
+            "license": "CC0-1.0",
+            "beds": [{
+                "id": "bed",
+                "file": "audio/bed.opus",
+                "loop": { "startSample": 0, "endSample": 48_000 },
+                "gainDb": 0.0
+            }]
+        });
+        fs::write(
+            dir.path().join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        let mut engine = Engine::new(48_000);
+        engine.set_fade_in(Duration::ZERO);
+        let id = load_and_play(&mut engine, &mix(&[("opus-pack", 0.0)]), dir.path());
+        let mut out = vec![0i16; 24_000 * 2];
+        let stats = engine.render_i16(&mut out, 24_000);
+        assert_eq!(id, "opus-pack");
+        assert!(stats.peak > 0.02, "peak={}", stats.peak);
+    }
+
+    #[test]
+    fn mix_change_crossfades_instead_of_stepping() {
+        let dir_a = tempfile::tempdir().unwrap();
+        let dir_b = tempfile::tempdir().unwrap();
+        make_dc_pack(dir_a.path(), "dc-a", 8_000, 48_000);
+        make_dc_pack(dir_b.path(), "dc-b", -8_000, 48_000);
+
+        let mut engine = Engine::new(48_000);
+        engine.set_fade_in(Duration::ZERO);
+        engine.load_pack(dir_a.path()).unwrap();
+        engine.load_pack(dir_b.path()).unwrap();
+        engine.set_mix(&mix(&[("dc-a", 0.0)])).unwrap();
+        engine.play();
+
+        let mut out = vec![0i16; 4_096 * 2];
+        engine.render_i16(&mut out, 4_096);
+        assert!(out[out.len() - 2] > 7_000);
+
+        engine.set_mix(&mix(&[("dc-b", 0.0)])).unwrap();
+        assert_eq!(engine.active_pack_count(), 1);
+        let mut transition = vec![0i16; 8_192 * 2];
+        engine.render_i16(&mut transition, 8_192);
+
+        let crossfade = ms_to_frames(MIX_CROSSFADE_MS, 48_000) as usize;
+        let mut joined = out[out.len() - 2..].to_vec();
+        joined.extend_from_slice(&transition[..crossfade * 2]);
+        let max_step = joined
+            .chunks_exact(2)
+            .zip(joined[2..].chunks_exact(2))
+            .fold(0i32, |max, (a, b)| {
+                max.max((b[0] as i32 - a[0] as i32).abs())
+            });
+        assert!(max_step < 500, "max step={max_step}");
+
+        assert!(transition[(crossfade + 1) * 2] < -7_000);
+        assert!(
+            transition[..crossfade * 2]
+                .chunks_exact(2)
+                .any(|frame| frame[0].abs() < 7_000),
+            "expected intermediate levels during the crossfade"
+        );
+        // Once the old layer has faded out it is removed.
+        let mut rest = vec![0i16; 4_096 * 2];
+        engine.render_i16(&mut rest, 4_096);
+        assert_eq!(engine.active_pack_count(), 1);
+        assert!(rest[rest.len() - 2] < -7_000);
+    }
+
+    #[test]
+    fn limiter_caps_a_hot_multi_pack_mix() {
+        let dir_a = tempfile::tempdir().unwrap();
+        let dir_b = tempfile::tempdir().unwrap();
+        make_dc_pack(dir_a.path(), "hot-a", i16::MAX, 48_000);
+        make_dc_pack(dir_b.path(), "hot-b", i16::MAX, 48_000);
+
+        let mut engine = Engine::new(48_000);
+        engine.set_fade_in(Duration::ZERO);
+        engine.load_pack(dir_a.path()).unwrap();
+        engine.load_pack(dir_b.path()).unwrap();
+        engine
+            .set_mix(&mix(&[("hot-a", 0.0), ("hot-b", 0.0)]))
+            .unwrap();
+        engine.play();
+
+        let mut out = vec![0i16; 48_000 * 2];
+        let stats = engine.render_i16(&mut out, 48_000);
+        // -1.5 dBFS ceiling with a small allowance for the dB conversion.
+        assert!(stats.peak <= 0.842, "peak={}", stats.peak);
+        assert!(stats.peak > 0.8, "peak={}", stats.peak);
+        assert!(peak_abs(&out) <= 0.842);
+        assert!(out.iter().all(|sample| *sample != i16::MAX));
     }
 
     #[test]
@@ -908,9 +1196,11 @@ mod tests {
         assert!(stats.finished);
         assert!(stats.peak < 0.5, "peak={}", stats.peak);
         assert_eq!(engine.state(), TransportState::Paused);
-        assert!(out[out.len() - 4_800 * 2..]
-            .iter()
-            .all(|sample| *sample == 0));
+        // The limiter's 5 ms lookahead holds back the final, nearly silent
+        // samples of the fade; after that the tail is exactly zero.
+        let tail = &out[out.len() - 4_800 * 2..];
+        assert!(tail.iter().all(|sample| sample.abs() <= 64), "{tail:?}");
+        assert!(tail[240 * 2..].iter().all(|sample| *sample == 0));
     }
 
     #[test]
