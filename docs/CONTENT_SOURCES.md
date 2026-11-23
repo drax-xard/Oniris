@@ -228,16 +228,22 @@ after auditioning 3–5 candidates per role.
   `GaryBran` 76685), rain drips (Freesound CC0 `TheGloomWorker` 683249).
 - **Target license:** CC0 if all Freesound CC0 + NPS; CC BY if Luftrum is used.
 
-### 2. Seaside (`seaside`)
+### 2. Seaside (`seaside`) — **pilot, built**
 
 - **Bed:** gentle surf on sand or rocks. Candidates: Freesound CC0 `YevgVerh`
   "Ocean_coast_04..." (827530), `bruno.auzet` "standing in Atlantic waves"
   (851795); Luftrum "Ocean Waves Crashing" (CC BY); Field Recording Project
   beaches (CC0).
+  - **Chosen:** `YevgVerh` 827530, CC0, 48 kHz/16-bit stereo, 3:01. Spec:
+    `tools/asset-pipeline/specs/seaside.json`; loop 120 s from 20 s with a 3 s
+    equal-power crossfade (0.19x p99.9 seam step, +0.2 dB across the join).
 - **Second bed (optional):** distant deep surf, or a quieter lapping texture.
 - **Events:** western gull (NPS, public domain), seagulls (Freesound CC0
   `felix.blume` 155747).
-- **Target license:** CC0/PD preferred; CC BY if Luftrum is used.
+  - **Chosen:** NPS Western Gull, two call bursts cut at 0.90-2.75 s and
+    2.75-3.92 s of the 4.7 s clip, at -2..+0.5 dB over the bed.
+- **Target license:** CC0/PD preferred; CC BY if Luftrum is used. The pilot ships
+  CC0 (Freesound CC0 + NPS public domain).
 
 ### 3. Cabin Fire (`cabin-fire`)
 
@@ -254,11 +260,32 @@ after auditioning 3–5 candidates per role.
   and "Forest Before The Rain" (CC BY); Field Recording Project "West Woods" /
   "Janesmoor, New Forest" (CC0); Freesound CC0 `mxlacy` 636946, `felix.blume`
   forest recordings.
+  - **Luftrum is not fetchable on demand:** the free playlist downloads per track
+    through SoundCloud ("view track → more"), so it needs a manual download each
+    time. Prefer a Freesound CC0 master unless a specific Luftrum track is wanted.
+  - **Verified candidates (2026-11-23, judged from 128 kbps previews; masters not
+    yet auditioned):**
+    - **Recommended as the bed** — [467971 "Lot 2 Forest"](https://freesound.org/s/467971/)
+      by Fission9, CC0, 4:15, master 48 kHz/24-bit stereo 70 MB. Leaves and wind,
+      no tonal artifacts (no spectral peak >20 dB over the local median),
+      <30 Hz share 0.62%, level steady within ±2 dB except two louder patches at
+      ~170 s and ~240 s. Bright balance (40% of energy 3–8 kHz), so it will want
+      a gentle high shelf.
+    - **Rejected** — [854010 "Forest ambience near a farm"](https://freesound.org/s/854010/)
+      by LukaCafuka, CC0, 4:20, master 96 kHz/24-bit. 52.6% of energy below 60 Hz
+      and 10.6% below 30 Hz (wind/vehicle rumble) plus loud farm events at 55 s
+      and 125 s.
+    - **Second texture, not a bed** — [575380 "Leaves rustle in the wind"](https://freesound.org/s/575380/)
+      by Cinetony, CC0, 1:46, master 48 kHz/24-bit; too short and too narrow to
+      carry a pack on its own.
+  - All three are CC0 (`creativecommons.org/publicdomain/zero`) with 48 kHz
+    stereo masters, so the pack can stay CC0.
 - **Second bed (optional):** stream/river (NPS Stream, public domain; Field
   Recording Project rivers; Freesound CC0 streams).
 - **Events:** spotted owl (NPS), crickets (NPS or Freesound CC0), dawn chorus
   (NPS), frogs (NPS/Freesound CC0).
 - **Target license:** CC0/PD preferred; CC BY if Luftrum is used.
+
 
 ### 5. Pure Noise (`pure-noise`)
 

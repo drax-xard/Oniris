@@ -2,7 +2,7 @@ CARGO_MANIFEST := core/Cargo.toml
 CLI := cargo run --manifest-path $(CARGO_MANIFEST) -p oniris-cli --
 PYTHON ?= python3
 
-.PHONY: all test fmt fmt-check clippy packs packs-wav noise procedural pack qa render android-native android-packs android beta clean
+.PHONY: all test fmt fmt-check clippy packs packs-wav noise procedural pack qa render android-native android-packs android beta clean spec audition
 
 all: fmt-check clippy test
 
@@ -42,6 +42,15 @@ qa: packs-wav
 
 render:
 	$(CLI) render --pack packs/test-rain --pack packs/test-fire --minutes 10 --out oniris-render.wav
+
+# Build one recorded pack from its JSON spec: make spec SPEC=seaside
+# Sources live outside the repo; output lands in dist/ (ignored by git).
+spec:
+	$(PYTHON) tools/asset-pipeline/ingest.py build tools/asset-pipeline/specs/$(SPEC).json
+
+# Render a 6 minute mix of the built pack for listening
+audition:
+	$(CLI) render --pack dist/packs/$(SPEC) --minutes 6 --out dist/work/$(SPEC)-audition.wav
 
 android-native:
 	cd core && cargo ndk \
