@@ -1,5 +1,8 @@
 package dev.oniris.playback
 
+import android.content.Context
+import androidx.annotation.StringRes
+import dev.oniris.R
 import dev.oniris.audio.AudioRenderThread
 import dev.oniris.audio.NativeEngine
 import kotlinx.coroutines.CoroutineScope
@@ -29,6 +32,7 @@ object PackPreviewController {
     private val lock = Any()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
+    private var appContext: Context? = null
     private var engine: NativeEngine? = null
     private var thread: AudioRenderThread? = null
     private var cleanupJob: Job? = null
@@ -40,13 +44,18 @@ object PackPreviewController {
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
 
+    /** Needed for localized snackbar text; called once from [OnirisApplication]. */
+    fun init(context: Context) {
+        appContext = context.applicationContext
+    }
+
     fun toggle(selection: PackSelection) {
         if (_activePackId.value == selection.id) {
             stop()
             return
         }
         if (PlaybackController.isPlaying.value) {
-            _message.value = "Pause playback to preview a pack"
+            emit(PreviewFailure(R.string.preview_pause_playback))
             return
         }
 
@@ -57,7 +66,7 @@ object PackPreviewController {
             previousCleanup?.join()
             val error = withContext(Dispatchers.IO) { startEngine(selection, request) }
             if (error != null) {
-                _message.value = error
+                emit(error)
             }
         }
     }
@@ -85,15 +94,15 @@ object PackPreviewController {
         _message.value = null
     }
 
-    private fun startEngine(selection: PackSelection, request: Int): String? {
+    private fun startEngine(selection: PackSelection, request: Int): PreviewFailure? {
         val preview = NativeEngine()
         if (!preview.available) {
             preview.close()
-            return "The native audio engine is not available"
+            return PreviewFailure(R.string.preview_engine_unavailable)
         }
         if (!preview.loadPack(selection.dir.absolutePath)) {
             preview.close()
-            return "Could not load ${selection.name}"
+            return PreviewFailure(R.string.error_could_not_load_pack, selection.name)
         }
 
         val mix = JSONObject().apply {
@@ -110,7 +119,7 @@ object PackPreviewController {
         }.toString()
         if (!preview.setMix(mix)) {
             preview.close()
-            return "Could not start the preview"
+            return PreviewFailure(R.string.preview_could_not_start)
         }
 
         preview.setFadeIn(FADE_IN_MS)
@@ -142,5 +151,19 @@ object PackPreviewController {
         }
         finished.stop()
         finished.close()
+    }
+
+    /** A failure that still needs a context to be rendered as text. */
+    private data class PreviewFailure(
+        @StringRes val messageRes: Int,
+        val packName: String? = null,
+    )
+
+    /** Without an application context there is nothing to show, so stay silent. */
+    private fun emit(failure: PreviewFailure) {
+        val context = appContext ?: return
+        _message.value = failure.packName
+            ?.let { context.getString(failure.messageRes, it) }
+            ?: context.getString(failure.messageRes)
     }
 }

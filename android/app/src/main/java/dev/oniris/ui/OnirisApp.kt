@@ -2,6 +2,7 @@ package dev.oniris.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -43,12 +44,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.oniris.R
 import dev.oniris.data.MixPreset
 import dev.oniris.data.NativePack
 import dev.oniris.data.PackInfo
@@ -66,51 +70,71 @@ import java.util.UUID
 
 private const val MAX_MIX_PACKS = 4
 
+/**
+ * A built-in mix preset. Display names live in string resources so they can be
+ * localized; [MixPreset.name] stays empty for these and is resolved with
+ * [presetDisplayName] at render time.
+ */
+private data class BuiltInPreset(
+    val id: String,
+    @StringRes val nameRes: Int,
+    val packIds: List<String>,
+    val timerMinutes: Int = 45,
+)
+
 private val builtInPresets = listOf(
-    MixPreset(
+    BuiltInPreset(
         id = "builtin-rainy-night",
-        name = "Rainy Night",
+        nameRes = R.string.preset_rainy_night,
         packIds = listOf("rainy-night-procedural"),
-        timerMinutes = 45,
-        builtIn = true,
     ),
-    MixPreset(
+    BuiltInPreset(
         id = "builtin-deep-space",
-        name = "Deep Space",
+        nameRes = R.string.preset_deep_space,
         packIds = listOf("deep-space-cabin"),
-        timerMinutes = 45,
-        builtIn = true,
     ),
-    MixPreset(
+    BuiltInPreset(
         id = "builtin-forest",
-        name = "Forest",
+        nameRes = R.string.preset_forest,
         packIds = listOf("enchanted-forest"),
-        timerMinutes = 45,
-        builtIn = true,
     ),
-    MixPreset(
+    BuiltInPreset(
         id = "builtin-sea-voyage",
-        name = "Sea Voyage",
+        nameRes = R.string.preset_sea_voyage,
         packIds = listOf("windy-sea-voyage"),
-        timerMinutes = 45,
-        builtIn = true,
     ),
-    MixPreset(
+    BuiltInPreset(
         id = "builtin-pure-noise",
-        name = "Pure Noise",
+        nameRes = R.string.preset_pure_noise,
         packIds = listOf("pure-noise"),
-        timerMinutes = 45,
-        builtIn = true,
     ),
 )
 
+private val builtInPresetNameRes: Map<String, Int> =
+    builtInPresets.associate { it.id to it.nameRes }
+
+private fun BuiltInPreset.toMixPreset(): MixPreset = MixPreset(
+    id = id,
+    // Resolved from nameRes for display; built-ins are never persisted.
+    name = "",
+    packIds = packIds,
+    timerMinutes = timerMinutes,
+    builtIn = true,
+)
+
+@Composable
+private fun presetDisplayName(preset: MixPreset): String {
+    val nameRes = if (preset.builtIn) builtInPresetNameRes[preset.id] else null
+    return if (nameRes != null) stringResource(nameRes) else preset.name
+}
+
 private val timerOptions = listOf(
-    0 to "Off",
-    15 to "15 min",
-    30 to "30 min",
-    45 to "45 min",
-    60 to "1 h",
-    90 to "1.5 h",
+    0 to R.string.timer_off,
+    15 to R.string.timer_15_min,
+    30 to R.string.timer_30_min,
+    45 to R.string.timer_45_min,
+    60 to R.string.timer_60_min,
+    90 to R.string.timer_90_min,
 )
 
 @Composable
@@ -144,10 +168,14 @@ fun OnirisApp(
             importing = true
             try {
                 val pack = repository.importArchive(uri)
-                snackbarHostState.showSnackbar("Imported ${pack.name}")
+                snackbarHostState.showSnackbar(
+                    context.getString(R.string.message_imported, pack.name),
+                )
                 refreshToken += 1
             } catch (error: Exception) {
-                snackbarHostState.showSnackbar(error.message ?: "Could not import the pack")
+                snackbarHostState.showSnackbar(
+                    error.message ?: context.getString(R.string.message_import_failed),
+                )
             } finally {
                 importing = false
             }
@@ -168,7 +196,7 @@ fun OnirisApp(
     val availableIds = availablePacks.map { it.id }.toSet()
     val activeSelectedIds = selectedIds.intersect(availableIds)
     val installedIds = packs.map { it.id }.toSet()
-    val presets = builtInPresets + (current?.presets ?: emptyList())
+    val presets = builtInPresets.map { it.toMixPreset() } + (current?.presets ?: emptyList())
 
     LaunchedEffect(packs, selectedIds, proceduralOnly) {
         val selection = availablePacks
@@ -222,6 +250,12 @@ fun OnirisApp(
         ),
     )
 
+    // Semantics descriptions are plain lambdas, so resolve them here.
+    val proceduralOnlyDescription = stringResource(R.string.procedural_only_content_description)
+    val stateOn = stringResource(R.string.state_on)
+    val stateOff = stringResource(R.string.state_off)
+    val masterVolumeDescription = stringResource(R.string.master_volume_content_description)
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
@@ -240,19 +274,19 @@ fun OnirisApp(
                     .padding(horizontal = 20.dp, vertical = 16.dp),
             ) {
                 Text(
-                    text = "Oniris",
+                    text = stringResource(R.string.app_name),
                     style = MaterialTheme.typography.displaySmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
                 Text(
-                    text = "Layer a night of sound and let it run.",
+                    text = stringResource(R.string.app_tagline),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
                 if (!PlaybackController.available) {
                     Spacer(Modifier.height(16.dp))
-                    Notice("The native audio engine is not loaded. Build liboniris_jni.so for this device to play audio.")
+                    Notice(stringResource(R.string.notice_engine_unavailable))
                 }
 
                 Spacer(Modifier.height(28.dp))
@@ -262,7 +296,7 @@ fun OnirisApp(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "Presets",
+                        text = stringResource(R.string.section_presets),
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.weight(1f),
                     )
@@ -273,11 +307,12 @@ fun OnirisApp(
                         },
                         enabled = activeSelectedIds.isNotEmpty(),
                     ) {
-                        Text("Save mix")
+                        Text(stringResource(R.string.action_save_mix))
                     }
                 }
 
                 presets.forEach { preset ->
+                    val displayName = presetDisplayName(preset)
                     val installed = preset.packIds.filter { it in availableIds }
                     PresetRow(
                         preset = preset,
@@ -286,7 +321,7 @@ fun OnirisApp(
                             if (installed.isEmpty()) {
                                 scope.launch {
                                     snackbarHostState.showSnackbar(
-                                        "Install a pack from ${preset.name} first",
+                                        context.getString(R.string.preset_install_first, displayName),
                                     )
                                 }
                             } else {
@@ -301,9 +336,14 @@ fun OnirisApp(
                                     val missing = preset.packIds.size - installed.size
                                     snackbarHostState.showSnackbar(
                                         if (missing > 0) {
-                                            "Applied ${preset.name}; $missing pack(s) missing"
+                                            context.resources.getQuantityString(
+                                                R.plurals.preset_applied_missing,
+                                                missing,
+                                                displayName,
+                                                missing,
+                                            )
                                         } else {
-                                            "Applied ${preset.name}"
+                                            context.getString(R.string.preset_applied, displayName)
                                         },
                                     )
                                 }
@@ -323,7 +363,7 @@ fun OnirisApp(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "Sound packs",
+                        text = stringResource(R.string.section_sound_packs),
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.weight(1f),
                     )
@@ -340,13 +380,17 @@ fun OnirisApp(
                         },
                         enabled = !importing && NativePack.available,
                     ) {
-                        Text(if (importing) "Importing…" else "Import")
+                        Text(
+                            stringResource(
+                                if (importing) R.string.action_importing else R.string.action_import,
+                            ),
+                        )
                     }
                     TextButton(
                         onClick = { refreshToken += 1 },
                         enabled = !loading && !importing,
                     ) {
-                        Text("Refresh")
+                        Text(stringResource(R.string.action_refresh))
                     }
                 }
 
@@ -357,11 +401,11 @@ fun OnirisApp(
                 ) {
                     Column(Modifier.weight(1f)) {
                         Text(
-                            text = "Procedural only",
+                            text = stringResource(R.string.procedural_only_title),
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Text(
-                            text = "Show only fully synthesized soundscapes; recorded packs stay hidden.",
+                            text = stringResource(R.string.procedural_only_description),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -372,8 +416,8 @@ fun OnirisApp(
                             scope.launch { settingsStore.setProceduralOnly(enabled) }
                         },
                         modifier = Modifier.semantics {
-                            contentDescription = "Procedural packs only"
-                            stateDescription = if (proceduralOnly) "On" else "Off"
+                            contentDescription = proceduralOnlyDescription
+                            stateDescription = if (proceduralOnly) stateOn else stateOff
                         },
                     )
                 }
@@ -391,14 +435,10 @@ fun OnirisApp(
                         }
                     }
 
-                    packs.isEmpty() -> Notice(
-                        "No packs installed yet. Import an .onirispack with the Import button, " +
-                            "generate development packs with `make packs`, or bundle them under assets/packs.",
-                    )
+                    packs.isEmpty() -> Notice(stringResource(R.string.notice_no_packs))
 
                     proceduralOnly && availablePacks.isEmpty() -> Notice(
-                        "No procedural packs installed. Generate them with `make procedural`, " +
-                            "then refresh or push them into the app's files/packs directory.",
+                        stringResource(R.string.notice_no_procedural_packs),
                     )
 
                     else -> {
@@ -421,7 +461,10 @@ fun OnirisApp(
                                     scope.launch {
                                         if (checked && selectedIds.size >= MAX_MIX_PACKS) {
                                             snackbarHostState.showSnackbar(
-                                                "Mix up to $MAX_MIX_PACKS packs",
+                                                context.getString(
+                                                    R.string.message_mix_limit,
+                                                    MAX_MIX_PACKS,
+                                                ),
                                             )
                                             return@launch
                                         }
@@ -441,33 +484,43 @@ fun OnirisApp(
 
                 Spacer(Modifier.height(20.dp))
 
-                Text("Volume", style = MaterialTheme.typography.titleMedium)
+                val masterVolume = current?.masterVolume ?: 0.8f
+                val masterVolumeState = stringResource(
+                    R.string.percent_state,
+                    (masterVolume * 100).roundToInt(),
+                )
+                Text(
+                    stringResource(R.string.section_volume),
+                    style = MaterialTheme.typography.titleMedium,
+                )
                 Slider(
-                    value = current?.masterVolume ?: 0.8f,
+                    value = masterVolume,
                     onValueChange = { value ->
                         scope.launch { settingsStore.setMasterVolume(value) }
                     },
                     valueRange = 0f..1f,
                     modifier = Modifier.semantics {
-                        contentDescription = "Master volume"
-                        stateDescription =
-                            "${((current?.masterVolume ?: 0.8f) * 100).roundToInt()} percent"
+                        contentDescription = masterVolumeDescription
+                        stateDescription = masterVolumeState
                     },
                 )
 
                 Spacer(Modifier.height(12.dp))
 
-                Text("Sleep timer", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    stringResource(R.string.section_sleep_timer),
+                    style = MaterialTheme.typography.titleMedium,
+                )
                 Spacer(Modifier.height(8.dp))
                 timerOptions.chunked(3).forEach { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        row.forEach { (minutes, label) ->
+                        row.forEach { (minutes, labelRes) ->
                             FilterChip(
                                 selected = (current?.timerMinutes ?: 0) == minutes,
                                 onClick = {
                                     scope.launch { settingsStore.setTimerMinutes(minutes) }
                                 },
-                                label = { Text(label) },
+                                label = { Text(stringResource(labelRes)) },
                             )
                         }
                     }
@@ -490,7 +543,9 @@ fun OnirisApp(
                         .height(56.dp),
                     enabled = PlaybackController.available && activeSelectedIds.isNotEmpty(),
                 ) {
-                    Text(if (isPlaying) "Pause" else "Play")
+                    Text(
+                        stringResource(if (isPlaying) R.string.action_pause else R.string.action_play),
+                    )
                 }
 
                 Spacer(Modifier.height(10.dp))
@@ -498,15 +553,15 @@ fun OnirisApp(
                 Text(
                     text = if (isPlaying) {
                         val megabytes = PlaybackController.decodedBytes() / (1024 * 1024)
-                        "Playing · $megabytes MB decoded · offline"
+                        stringResource(R.string.status_playing, megabytes)
                     } else if (activeSelectedIds.isEmpty()) {
                         if (proceduralOnly) {
-                            "Select a procedural pack"
+                            stringResource(R.string.status_select_procedural_pack)
                         } else {
-                            "Select at least one pack"
+                            stringResource(R.string.status_select_pack)
                         }
                     } else {
-                        "Ready"
+                        stringResource(R.string.status_ready)
                     },
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -520,7 +575,7 @@ fun OnirisApp(
                         onClick = { showLicenses = true },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("Licenses & credits")
+                        Text(stringResource(R.string.licenses_title))
                     }
                 }
 
@@ -532,12 +587,12 @@ fun OnirisApp(
     if (showSavePreset) {
         AlertDialog(
             onDismissRequest = { showSavePreset = false },
-            title = { Text("Save current mix") },
+            title = { Text(stringResource(R.string.save_preset_title)) },
             text = {
                 OutlinedTextField(
                     value = presetName,
                     onValueChange = { presetName = it },
-                    label = { Text("Preset name") },
+                    label = { Text(stringResource(R.string.preset_name_label)) },
                     singleLine = true,
                 )
             },
@@ -558,17 +613,19 @@ fun OnirisApp(
                             settingsStore.savePreset(preset)
                             showSavePreset = false
                             presetName = ""
-                            snackbarHostState.showSnackbar("Saved $name")
+                            snackbarHostState.showSnackbar(
+                                context.getString(R.string.preset_saved, name),
+                            )
                         }
                     },
                     enabled = presetName.isNotBlank(),
                 ) {
-                    Text("Save")
+                    Text(stringResource(R.string.action_save))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showSavePreset = false }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.action_cancel))
                 }
             },
         )
@@ -578,7 +635,7 @@ fun OnirisApp(
         val creditedPacks = packs.filter { it.credits.isNotEmpty() }
         AlertDialog(
             onDismissRequest = { showLicenses = false },
-            title = { Text("Licenses & credits") },
+            title = { Text(stringResource(R.string.licenses_title)) },
             text = {
                 Column(
                     Modifier
@@ -599,14 +656,20 @@ fun OnirisApp(
                         )
                         pack.credits.forEach { credit ->
                             Spacer(Modifier.height(6.dp))
-                            val line = buildString {
-                                append(credit.title)
-                                append(" — ")
-                                append(credit.author)
-                                append(" (")
-                                append(credit.license)
-                                if (credit.modified) append(", edited")
-                                append(")")
+                            val line = if (credit.modified) {
+                                stringResource(
+                                    R.string.credit_line_edited,
+                                    credit.title,
+                                    credit.author,
+                                    credit.license,
+                                )
+                            } else {
+                                stringResource(
+                                    R.string.credit_line,
+                                    credit.title,
+                                    credit.author,
+                                    credit.license,
+                                )
                             }
                             Text(
                                 text = line,
@@ -625,7 +688,7 @@ fun OnirisApp(
             },
             confirmButton = {
                 TextButton(onClick = { showLicenses = false }) {
-                    Text("Close")
+                    Text(stringResource(R.string.action_close))
                 }
             },
         )
@@ -639,6 +702,10 @@ private fun PresetRow(
     onApply: () -> Unit,
     onDelete: (() -> Unit)?,
 ) {
+    val displayName = presetDisplayName(preset)
+    val separator = stringResource(R.string.separator)
+    val applyDescription = stringResource(R.string.preset_apply_content_description, displayName)
+    val deleteDescription = stringResource(R.string.preset_delete_content_description, displayName)
     Surface(
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surface,
@@ -650,15 +717,25 @@ private fun PresetRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text(text = preset.name, style = MaterialTheme.typography.titleSmall)
-                val details = buildString {
-                    append(preset.packIds.size)
-                    append(if (preset.packIds.size == 1) " pack" else " packs")
-                    append(" · ")
-                    append(if (preset.timerMinutes > 0) "${preset.timerMinutes} min timer" else "no timer")
-                    if (preset.builtIn) append(" · built-in")
-                    if (!available) append(" · missing packs")
-                }
+                Text(text = displayName, style = MaterialTheme.typography.titleSmall)
+                val details = buildList {
+                    add(
+                        pluralStringResource(
+                            R.plurals.pack_count,
+                            preset.packIds.size,
+                            preset.packIds.size,
+                        ),
+                    )
+                    add(
+                        if (preset.timerMinutes > 0) {
+                            stringResource(R.string.preset_timer, preset.timerMinutes)
+                        } else {
+                            stringResource(R.string.preset_no_timer)
+                        },
+                    )
+                    if (preset.builtIn) add(stringResource(R.string.preset_built_in))
+                    if (!available) add(stringResource(R.string.preset_missing_packs))
+                }.joinToString(separator)
                 Text(
                     text = details,
                     style = MaterialTheme.typography.labelSmall,
@@ -669,19 +746,19 @@ private fun PresetRow(
                 onClick = onApply,
                 enabled = available,
                 modifier = Modifier.semantics {
-                    contentDescription = "Apply ${preset.name}"
+                    contentDescription = applyDescription
                 },
             ) {
-                Text("Apply")
+                Text(stringResource(R.string.action_apply))
             }
             if (onDelete != null) {
                 TextButton(
                     onClick = onDelete,
                     modifier = Modifier.semantics {
-                        contentDescription = "Delete ${preset.name}"
+                        contentDescription = deleteDescription
                     },
                 ) {
-                    Text("Delete")
+                    Text(stringResource(R.string.action_delete))
                 }
             }
         }
@@ -698,6 +775,17 @@ private fun PackRow(
     onGainChange: (Float) -> Unit,
     onSelectedChange: (Boolean) -> Unit,
 ) {
+    val separator = stringResource(R.string.separator)
+    val tagSeparator = stringResource(R.string.tag_separator)
+    val gainPercent = (gain * 100).roundToInt()
+    val volumeDescription = stringResource(R.string.pack_volume_content_description, pack.name)
+    val volumeState = stringResource(R.string.percent_state, gainPercent)
+    val includeDescription = stringResource(R.string.pack_include_content_description, pack.name)
+    val stateIncluded = stringResource(R.string.state_included)
+    val stateNotIncluded = stringResource(R.string.state_not_included)
+    val previewDescription = stringResource(R.string.preview_content_description, pack.name)
+    val stopPreviewDescription =
+        stringResource(R.string.preview_stop_content_description, pack.name)
     Surface(
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surface,
@@ -723,20 +811,26 @@ private fun PackRow(
                     )
                 }
                 Spacer(Modifier.height(6.dp))
-                val details = buildString {
-                    append(pack.bedCount)
-                    append(if (pack.bedCount == 1) " bed" else " beds")
-                    append(" · ")
-                    append(pack.eventCount)
-                    append(if (pack.eventCount == 1) " event" else " events")
-                    if (pack.procedural) {
-                        append(" · procedural")
-                    }
+                val details = buildList {
+                    add(
+                        pluralStringResource(
+                            R.plurals.pack_bed_count,
+                            pack.bedCount,
+                            pack.bedCount,
+                        ),
+                    )
+                    add(
+                        pluralStringResource(
+                            R.plurals.pack_event_count,
+                            pack.eventCount,
+                            pack.eventCount,
+                        ),
+                    )
+                    if (pack.procedural) add(stringResource(R.string.pack_procedural))
                     if (pack.tags.isNotEmpty()) {
-                        append(" · ")
-                        append(pack.tags.take(3).joinToString(", "))
+                        add(pack.tags.take(3).joinToString(tagSeparator))
                     }
-                }
+                }.joinToString(separator)
                 Text(
                     text = details,
                     style = MaterialTheme.typography.labelSmall,
@@ -746,7 +840,7 @@ private fun PackRow(
                     Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "Volume ${(gain * 100).roundToInt()}%",
+                            text = stringResource(R.string.pack_volume_label, gainPercent),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.width(92.dp),
@@ -758,8 +852,8 @@ private fun PackRow(
                             modifier = Modifier
                                 .weight(1f)
                                 .semantics {
-                                    contentDescription = "${pack.name} volume"
-                                    stateDescription = "${(gain * 100).roundToInt()} percent"
+                                    contentDescription = volumeDescription
+                                    stateDescription = volumeState
                                 },
                         )
                     }
@@ -771,21 +865,25 @@ private fun PackRow(
                     checked = selected,
                     onCheckedChange = onSelectedChange,
                     modifier = Modifier.semantics {
-                        contentDescription = "Include ${pack.name} in the mix"
-                        stateDescription = if (selected) "Included" else "Not included"
+                        contentDescription = includeDescription
+                        stateDescription = if (selected) stateIncluded else stateNotIncluded
                     },
                 )
                 TextButton(
                     onClick = onPreview,
                     modifier = Modifier.semantics {
                         contentDescription = if (previewing) {
-                            "Stop preview of ${pack.name}"
+                            stopPreviewDescription
                         } else {
-                            "Preview ${pack.name}"
+                            previewDescription
                         }
                     },
                 ) {
-                    Text(if (previewing) "Stop" else "Preview")
+                    Text(
+                        stringResource(
+                            if (previewing) R.string.action_stop else R.string.action_preview,
+                        ),
+                    )
                 }
             }
         }

@@ -1,5 +1,157 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
+
+    <!-- App shell -->
     <string name="app_name">Oniris</string>
+    <string name="app_tagline">Layer a night of sound and let it run.</string>
+    <string name="notice_engine_unavailable">The native audio engine is not loaded. Build liboniris_jni.so for this device to play audio.</string>
+
+    <!-- Presets -->
+    <string name="section_presets">Presets</string>
+    <string name="action_save_mix">Save mix</string>
+    <string name="preset_rainy_night">Rainy Night</string>
+    <string name="preset_deep_space">Deep Space</string>
+    <string name="preset_forest">Forest</string>
+    <string name="preset_sea_voyage">Sea Voyage</string>
+    <string name="preset_pure_noise">Pure Noise</string>
+    <string name="action_apply">Apply</string>
+    <string name="action_delete">Delete</string>
+    <!-- Parameter: preset display name. -->
+    <string name="preset_apply_content_description">Apply %1$s</string>
+    <!-- Parameter: preset display name. -->
+    <string name="preset_delete_content_description">Delete %1$s</string>
+    <!-- Parameter: preset display name. -->
+    <string name="preset_install_first">Install a pack from %1$s first</string>
+    <!-- Parameter: preset display name. -->
+    <string name="preset_applied">Applied %1$s</string>
+    <!-- Parameters: preset display name, number of missing packs. -->
+    <plurals name="preset_applied_missing">
+        <item quantity="one">Applied %1$s; %2$d pack missing</item>
+        <item quantity="other">Applied %1$s; %2$d packs missing</item>
+    </plurals>
+    <string name="preset_timer">%1$d min timer</string>
+    <string name="preset_no_timer">no timer</string>
+    <string name="preset_built_in">built-in</string>
+    <string name="preset_missing_packs">missing packs</string>
+    <!-- Parameter: number of packs in the preset. -->
+    <plurals name="pack_count">
+        <item quantity="one">%1$d pack</item>
+        <item quantity="other">%1$d packs</item>
+    </plurals>
+    <!-- Joins preset details, e.g. "2 packs · 45 min timer · built-in". -->
+    <string name="separator">" · "</string>
+
+    <!-- Sound packs -->
+    <string name="section_sound_packs">Sound packs</string>
+    <string name="action_import">Import</string>
+    <string name="action_importing">Importing…</string>
+    <string name="action_refresh">Refresh</string>
+    <string name="procedural_only_title">Procedural only</string>
+    <string name="procedural_only_description">Show only fully synthesized soundscapes; recorded packs stay hidden.</string>
+    <string name="procedural_only_content_description">Procedural packs only</string>
+    <string name="state_on">On</string>
+    <string name="state_off">Off</string>
+    <string name="state_included">Included</string>
+    <string name="state_not_included">Not included</string>
+    <string name="notice_no_packs">No packs installed yet. Import an .onirispack with the Import button, generate development packs with `make packs`, or bundle them under assets/packs.</string>
+    <string name="notice_no_procedural_packs">No procedural packs installed. Generate them with `make procedural`, then refresh or push them into the app\'s files/packs directory.</string>
+    <!-- Parameter: maximum number of packs in one mix. -->
+    <string name="message_mix_limit">Mix up to %1$d packs</string>
+    <!-- Parameter: number of beds in the pack. -->
+    <plurals name="pack_bed_count">
+        <item quantity="one">%1$d bed</item>
+        <item quantity="other">%1$d beds</item>
+    </plurals>
+    <!-- Parameter: number of events in the pack. -->
+    <plurals name="pack_event_count">
+        <item quantity="one">%1$d event</item>
+        <item quantity="other">%1$d events</item>
+    </plurals>
+    <string name="pack_procedural">procedural</string>
+    <!-- Joins pack tags. -->
+    <string name="tag_separator">", "</string>
+    <!-- Parameter: per-pack volume in percent; the % is always a literal. -->
+    <string name="pack_volume_label">Volume %1$d%%</string>
+    <!-- Parameter: pack name. -->
+    <string name="pack_volume_content_description">%1$s volume</string>
+    <!-- Parameter: pack name. -->
+    <string name="pack_include_content_description">Include %1$s in the mix</string>
+    <!-- Parameter: volume in percent. Used for slider state descriptions. -->
+    <string name="percent_state">%1$d percent</string>
+    <string name="action_preview">Preview</string>
+    <string name="action_stop">Stop</string>
+    <!-- Parameter: pack name. -->
+    <string name="preview_content_description">Preview %1$s</string>
+    <!-- Parameter: pack name. -->
+    <string name="preview_stop_content_description">Stop preview of %1$s</string>
+
+    <!-- Volume and sleep timer -->
+    <string name="section_volume">Volume</string>
+    <string name="master_volume_content_description">Master volume</string>
+    <string name="section_sleep_timer">Sleep timer</string>
+    <string name="timer_off">Off</string>
+    <string name="timer_15_min">15 min</string>
+    <string name="timer_30_min">30 min</string>
+    <string name="timer_45_min">45 min</string>
+    <string name="timer_60_min">1 h</string>
+    <string name="timer_90_min">1.5 h</string>
+
+    <!-- Transport -->
+    <string name="action_play">Play</string>
+    <string name="action_pause">Pause</string>
+    <!-- Parameter: megabytes decoded so far. -->
+    <string name="status_playing">Playing · %1$d MB decoded · offline</string>
+    <string name="status_select_pack">Select at least one pack</string>
+    <string name="status_select_procedural_pack">Select a procedural pack</string>
+    <string name="status_ready">Ready</string>
+
+    <!-- Save preset dialog -->
+    <string name="save_preset_title">Save current mix</string>
+    <string name="preset_name_label">Preset name</string>
+    <!-- Parameter: preset name. -->
+    <string name="preset_saved">Saved %1$s</string>
+    <string name="action_save">Save</string>
+    <string name="action_cancel">Cancel</string>
+
+    <!-- Licenses and credits -->
+    <string name="licenses_title">Licenses &amp; credits</string>
+    <string name="action_close">Close</string>
+    <!-- Parameters: title, author, license. -->
+    <string name="credit_line">%1$s — %2$s (%3$s)</string>
+    <!-- Parameters: title, author, license. -->
+    <string name="credit_line_edited">%1$s — %2$s (%3$s, edited)</string>
+
+    <!-- Import -->
+    <!-- Parameter: imported pack name. -->
+    <string name="message_imported">Imported %1$s</string>
+    <string name="message_import_failed">Could not import the pack</string>
+    <string name="error_importer_unavailable">The native pack importer is not available on this device</string>
+    <string name="error_pack_unreadable">The imported pack could not be read</string>
+    <string name="error_pack_too_large">The selected pack is larger than the import limit</string>
+    <string name="error_cannot_open_file">Could not open the selected file</string>
+
+    <!-- Playback feedback -->
+    <string name="playback_not_initialized">Playback is not initialized</string>
+    <string name="playback_engine_not_initialized">Native engine is not initialized</string>
+    <string name="playback_engine_unavailable">Native engine is not built for this device</string>
+    <string name="playback_need_pack">Add at least one sound pack first</string>
+    <string name="playback_stopping">Audio is still stopping; try again in a moment</string>
+    <!-- Parameter: pack name. -->
+    <string name="error_could_not_load_pack">Could not load %1$s</string>
+    <string name="playback_could_not_apply_mix">Could not apply the mix</string>
+    <string name="playback_error_start">Could not start playback</string>
+
+    <!-- Preview feedback -->
+    <string name="preview_pause_playback">Pause playback to preview a pack</string>
+    <string name="preview_engine_unavailable">The native audio engine is not available</string>
+    <string name="preview_could_not_start">Could not start the preview</string>
+
+    <!-- Media notification and system UI -->
+    <string name="media_album_title">Sleep soundscape</string>
+    <!-- Joins pack names in the media-session title, e.g. "Rainy Night + Forest". -->
+    <string name="mix_title_separator">" + "</string>
+    <!-- Parameter: number of pack names not shown in the media-session title. -->
+    <string name="mix_title_overflow">"+%1$d"</string>
     <string name="notification_channel">Playback</string>
     <string name="notification_stop">Stop</string>
     <string name="quick_tile_label">Oniris</string>

@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.util.Log
+import dev.oniris.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -65,9 +66,13 @@ class PackRepository(context: Context) {
         try {
             copyToCache(uri, archive)
             val id = NativePack.installArchive(archive.absolutePath, packsDir.absolutePath)
-                ?: throw IOException("The native pack importer is not available on this device")
+                ?: throw IOException(
+                    appContext.getString(R.string.error_importer_unavailable),
+                )
             readPack(File(packsDir, id))
-                ?: throw IOException("The imported pack could not be read")
+                ?: throw IOException(
+                    appContext.getString(R.string.error_pack_unreadable),
+                )
         } finally {
             archive.delete()
         }
@@ -83,12 +88,14 @@ class PackRepository(context: Context) {
                     if (read < 0) break
                     total += read
                     if (total > MAX_ARCHIVE_BYTES) {
-                        throw IOException("The selected pack is larger than the import limit")
+                        throw IOException(
+                            appContext.getString(R.string.error_pack_too_large),
+                        )
                     }
                     target.write(buffer, 0, read)
                 }
             }
-        } ?: throw IOException("Could not open the selected file")
+        } ?: throw IOException(appContext.getString(R.string.error_cannot_open_file))
     }
 
     private fun installBundledPacks() {

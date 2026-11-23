@@ -3,6 +3,8 @@ package dev.oniris.playback
 import android.annotation.SuppressLint
 import android.content.Context
 import android.os.PowerManager
+import androidx.annotation.StringRes
+import dev.oniris.R
 import dev.oniris.audio.AudioRenderThread
 import dev.oniris.audio.NativeEngine
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,8 +44,8 @@ object PlaybackController {
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
-    private val _mixTitle = MutableStateFlow("")
-    val mixTitle: StateFlow<String> = _mixTitle.asStateFlow()
+    private val _mixPackNames = MutableStateFlow<List<String>>(emptyList())
+    val mixPackNames: StateFlow<List<String>> = _mixPackNames.asStateFlow()
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
@@ -63,7 +65,7 @@ object PlaybackController {
     fun setPacks(value: List<PackSelection>) {
         synchronized(lock) {
             selections = value
-            _mixTitle.value = titleFor(value)
+            _mixPackNames.value = value.map { it.name }
             if (_isPlaying.value) {
                 engine?.let(::applyMix)
             }
@@ -73,20 +75,11 @@ object PlaybackController {
     val hasSelection: Boolean
         get() = synchronized(lock) { selections.isNotEmpty() }
 
-    private fun titleFor(value: List<PackSelection>): String {
-        val names = value.map { it.name }
-        return when {
-            names.isEmpty() -> ""
-            names.size <= 2 -> names.joinToString(" + ")
-            else -> names.take(2).joinToString(" + ") + " +${names.size - 2}"
-        }
-    }
-
     fun play(): Boolean = synchronized(lock) {
-        val context = appContext ?: return fail("Playback is not initialized")
-        val current = engine ?: return fail("Native engine is not initialized")
-        if (!current.available) return fail("Native engine is not built for this device")
-        if (selections.isEmpty()) return fail("Add at least one sound pack first")
+        val context = appContext ?: return fail(R.string.playback_not_initialized)
+        val current = engine ?: return fail(R.string.playback_engine_not_initialized)
+        if (!current.available) return fail(R.string.playback_engine_unavailable)
+        if (selections.isEmpty()) return fail(R.string.playback_need_pack)
         if (pausing && renderThread?.isRunning == true) {
             // Reverse a pause fade that is still running.
             pausing = false
@@ -98,7 +91,7 @@ object PlaybackController {
         pausing = false
         if (_isPlaying.value) return true
         if (!stopRenderThread()) {
-            return fail("Audio is still stopping; try again in a moment")
+            return fail(R.string.playback_stopping)
         }
 
         if (!applyMix(current)) return false
@@ -129,7 +122,7 @@ object PlaybackController {
         for (selection in selections) {
             if (selection.id in loadedPackIds) continue
             if (!current.loadPack(selection.dir.absolutePath)) {
-                return fail("Could not load ${selection.name}")
+                return fail(R.string.error_could_not_load_pack, selection.name)
             }
             loadedPackIds += selection.id
         }
@@ -152,7 +145,7 @@ object PlaybackController {
         }.toString()
 
         if (!current.setMix(json)) {
-            return fail("Could not apply the mix")
+            return fail(R.string.playback_could_not_apply_mix)
         }
         for (selection in selections) {
             current.setPackGain(selection.id, packGains[selection.id] ?: 1f)
@@ -287,8 +280,14 @@ object PlaybackController {
         wakeLock = null
     }
 
-    private fun fail(message: String): Boolean {
-        _message.value = message
+    /**
+     * Publish a user-facing message for the UI to show.
+     *
+     * Without an application context there is nothing that could render the
+     * message, so a null message (no snackbar) is the correct outcome.
+     */
+    private fun fail(@StringRes messageRes: Int, vararg args: Any): Boolean {
+        _message.value = appContext?.getString(messageRes, *args)
         return false
     }
 }

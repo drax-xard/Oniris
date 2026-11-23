@@ -44,8 +44,8 @@ class OnirisPlayer(
     private val stateJob = scope.launch {
         combine(
             PlaybackController.isPlaying,
-            PlaybackController.mixTitle,
-        ) { playing, mixTitle -> playing to mixTitle }
+            PlaybackController.mixPackNames,
+        ) { playing, packNames -> playing to formatTitle(packNames) }
             .collect { (playing, mixTitle) ->
                 title = mixTitle
                 if (playing) {
@@ -65,7 +65,7 @@ class OnirisPlayer(
         val metadata = MediaMetadata.Builder()
             .setTitle(title.ifBlank { context.getString(R.string.app_name) })
             .setArtist(context.getString(R.string.app_name))
-            .setAlbumTitle("Sleep soundscape")
+            .setAlbumTitle(context.getString(R.string.media_album_title))
             .build()
         val item = MediaItem.Builder()
             .setMediaId(MEDIA_ID)
@@ -170,13 +170,22 @@ class OnirisPlayer(
                 playbackState = Player.STATE_IDLE
                 this@OnirisPlayer.playWhenReady = false
                 playerError = PlaybackException(
-                    "Could not start playback",
+                    context.getString(R.string.playback_error_start),
                     null,
                     PlaybackException.ERROR_CODE_UNSPECIFIED,
                 )
             }
             invalidateState()
         }
+    }
+
+    /** Media-session title: the first two pack names, plus a count when longer. */
+    private fun formatTitle(packNames: List<String>): String {
+        if (packNames.isEmpty()) return ""
+        val separator = context.getString(R.string.mix_title_separator)
+        if (packNames.size <= 2) return packNames.joinToString(separator)
+        val shown = packNames.take(2).joinToString(separator)
+        return shown + context.getString(R.string.mix_title_overflow, packNames.size - 2)
     }
 
     private fun requestPause() {

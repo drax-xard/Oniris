@@ -3,6 +3,7 @@ package dev.oniris
 import android.app.Application
 import dev.oniris.data.PackRepository
 import dev.oniris.data.SettingsStore
+import dev.oniris.playback.PackPreviewController
 import dev.oniris.playback.PlaybackController
 
 class OnirisApplication : Application() {
@@ -17,5 +18,6 @@ class OnirisApplication : Application() {
         packs = PackRepository(this)
         settings = SettingsStore(this)
         PlaybackController.init(this)
+        PackPreviewController.init(this)
     }
 }
