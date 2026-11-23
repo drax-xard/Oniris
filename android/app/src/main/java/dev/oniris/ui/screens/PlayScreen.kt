@@ -17,7 +17,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.oniris.R
 import dev.oniris.ui.components.Notice
 
 /**
@@ -35,6 +38,23 @@ fun PlayScreen(
     onOpenLibrary: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val separator = stringResource(R.string.list_separator)
+    val status = buildList {
+        add(pluralStringResource(R.plurals.play_layers, packNames.size, packNames.size))
+        add(
+            when {
+                isPlaying -> stringResource(
+                    R.string.play_status_offline,
+                    (decodedBytes / (1024 * 1024)).toInt(),
+                )
+
+                packNames.isEmpty() -> stringResource(R.string.play_status_silent)
+                else -> stringResource(R.string.play_status_idle)
+            },
+        )
+        add(stringResource(R.string.play_status_timer, timerLabel(timerMinutes)))
+    }.joinToString(separator)
+
     Column(
         modifier
             .fillMaxWidth()
@@ -42,10 +62,7 @@ fun PlayScreen(
             .padding(horizontal = 20.dp, vertical = 16.dp),
     ) {
         if (!available) {
-            Notice(
-                "The native audio engine is not loaded on this build. Browsing works, " +
-                    "but playback needs liboniris_jni.so built for this device.",
-            )
+            Notice(stringResource(R.string.play_engine_missing))
             Spacer(Modifier.height(16.dp))
         }
 
@@ -60,39 +77,29 @@ fun PlayScreen(
                 horizontalAlignment = Alignment.Start,
             ) {
                 Text(
-                    text = when {
-                        isPlaying -> "Playing"
-                        packNames.isEmpty() -> "Nothing loaded"
-                        else -> "Ready"
-                    },
+                    text = stringResource(
+                        when {
+                            isPlaying -> R.string.play_state_playing
+                            packNames.isEmpty() -> R.string.play_state_nothing_loaded
+                            else -> R.string.play_state_ready
+                        },
+                    ),
                     style = MaterialTheme.typography.headlineMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
                     text = if (packNames.isEmpty()) {
-                        "Pick a few packs in the Library."
+                        stringResource(R.string.play_empty_hint)
                     } else {
-                        packNames.joinToString(" · ")
+                        packNames.joinToString(separator)
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(14.dp))
                 Text(
-                    text = buildString {
-                        append(if (packNames.size == 1) "1 layer" else "${packNames.size} layers")
-                        append(" · ")
-                        append(
-                            when {
-                                isPlaying -> "${decodedBytes / (1024 * 1024)} MB decoded · offline"
-                                packNames.isEmpty() -> "silent"
-                                else -> "idle"
-                            },
-                        )
-                        append(" · timer ")
-                        append(timerLabel(timerMinutes))
-                    },
+                    text = status,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -109,7 +116,7 @@ fun PlayScreen(
             enabled = available && packNames.isNotEmpty(),
         ) {
             Text(
-                text = if (isPlaying) "Pause" else "Play",
+                text = stringResource(if (isPlaying) R.string.pause else R.string.play),
                 style = MaterialTheme.typography.titleMedium,
             )
         }
@@ -125,26 +132,26 @@ fun PlayScreen(
                 onClick = onStop,
                 enabled = isPlaying,
             ) {
-                Text("Stop")
+                Text(stringResource(R.string.stop))
             }
             TextButton(onClick = onOpenLibrary) {
-                Text(if (packNames.isEmpty()) "Choose packs" else "Edit packs")
+                Text(
+                    stringResource(
+                        if (packNames.isEmpty()) {
+                            R.string.play_choose_packs
+                        } else {
+                            R.string.play_edit_packs
+                        },
+                    ),
+                )
             }
         }
 
         if (packNames.isEmpty()) {
             Spacer(Modifier.height(16.dp))
-            Notice("The library is empty of a selection. Nothing plays until at least one pack is on.")
+            Notice(stringResource(R.string.play_no_selection))
         }
 
         Spacer(Modifier.height(24.dp))
     }
-}
-
-@Composable
-internal fun timerLabel(minutes: Int): String = when (minutes) {
-    0 -> "off"
-    60 -> "1 h"
-    90 -> "1.5 h"
-    else -> "$minutes min"
 }

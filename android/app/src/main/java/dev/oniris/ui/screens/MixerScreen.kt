@@ -17,9 +17,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.oniris.R
 import dev.oniris.data.PackInfo
 import dev.oniris.ui.components.Notice
+import java.util.Locale
 import kotlin.math.log10
 
 /** Master volume plus per-pack trim for the packs currently in the mix. */
@@ -47,10 +51,13 @@ fun MixerScreen(
         ) {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 16.dp)) {
                 LevelRow(
-                    label = "Master",
+                    label = stringResource(R.string.mixer_master),
                     value = masterVolume,
                     valueRange = 0f..1f,
-                    footer = "${(masterVolume * 100).toInt()}%",
+                    footer = stringResource(
+                        R.string.mixer_master_percent,
+                        (masterVolume * 100).toInt(),
+                    ),
                     onValueChange = onMasterVolumeChange,
                 )
             }
@@ -59,26 +66,26 @@ fun MixerScreen(
         Spacer(Modifier.height(24.dp))
 
         Text(
-            text = "Layers",
+            text = stringResource(R.string.mixer_layers),
             style = MaterialTheme.typography.titleMedium,
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            text = if (activePacks.size == 1) {
-                "1 pack in the mix"
-            } else {
-                "${activePacks.size} packs in the mix"
-            },
+            text = pluralStringResource(
+                R.plurals.mixer_pack_count,
+                activePacks.size,
+                activePacks.size,
+            ),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(12.dp))
 
         if (activePacks.isEmpty()) {
-            Notice("Nothing in the mix yet.")
+            Notice(stringResource(R.string.mixer_empty))
             Spacer(Modifier.height(12.dp))
             Button(onClick = onOpenLibrary) {
-                Text("Open the library")
+                Text(stringResource(R.string.mixer_open_library))
             }
         } else {
             activePacks.forEach { pack ->
@@ -103,8 +110,7 @@ fun MixerScreen(
             }
             Spacer(Modifier.height(6.dp))
             Text(
-                text = "0 dB keeps a pack at its authored level; drag down to tuck a layer " +
-                    "under the others.",
+                text = stringResource(R.string.mixer_gain_hint),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -145,13 +151,18 @@ private fun LevelRow(
     )
 }
 
+@Composable
 private fun gainLabel(gain: Float): String {
-    if (gain <= 0.001f) return "−∞ dB"
+    if (gain <= 0.001f) return stringResource(R.string.mixer_gain_silent)
     val db = 20f * log10(gain)
     val rounded = (db * 10).toInt() / 10f
     return when {
-        rounded > 0f -> "+$rounded dB"
-        rounded == 0f -> "0 dB"
-        else -> "$rounded dB"
-    }.replace("+0.0 dB", "0 dB")
+        rounded > 0f -> stringResource(R.string.mixer_gain_boost, formatDb(rounded))
+        rounded == 0f -> stringResource(R.string.mixer_gain_unity)
+        else -> stringResource(R.string.mixer_gain_cut, formatDb(rounded))
+    }
 }
+
+/** One decimal, with the locale's separator (e.g. "-2,8" in German). */
+private fun formatDb(value: Float): String =
+    String.format(Locale.getDefault(), "%.1f", value)

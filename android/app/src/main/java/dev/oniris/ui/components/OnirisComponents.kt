@@ -14,8 +14,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.oniris.R
 import dev.oniris.data.PackInfo
 
 /** Muted informational card. */
@@ -86,14 +89,17 @@ fun PackCard(
     }
 }
 
-private fun packSummary(pack: PackInfo): String = buildString {
-    append(pack.bedCount)
-    append(if (pack.bedCount == 1) " bed" else " beds")
-    append(" · ")
-    append(pack.eventCount)
-    append(if (pack.eventCount == 1) " event" else " events")
-    if (pack.tags.isNotEmpty()) {
-        append(" · ")
-        append(pack.tags.take(3).joinToString(", "))
+@Composable
+private fun packSummary(pack: PackInfo): String {
+    val separator = stringResource(R.string.list_separator)
+    val parts = buildList {
+        add(pluralStringResource(R.plurals.pack_beds, pack.bedCount, pack.bedCount))
+        add(pluralStringResource(R.plurals.pack_events, pack.eventCount, pack.eventCount))
+        if (pack.tags.isNotEmpty()) {
+            add(
+                pack.tags.take(3).joinToString(stringResource(R.string.pack_tags_separator)),
+            )
+        }
     }
+    return parts.joinToString(separator)
 }

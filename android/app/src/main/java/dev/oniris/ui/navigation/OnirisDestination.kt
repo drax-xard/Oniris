@@ -5,27 +5,29 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
+import androidx.annotation.StringRes
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
+import dev.oniris.R
 
 /**
  * Top-level sections of the app. One screen each, selected from the side
- * navigation drawer.
+ * navigation drawer. Labels are string resources so they follow the UI locale.
  */
 enum class OnirisDestination(
-    val label: String,
-    val subtitle: String,
+    @StringRes val labelRes: Int,
+    @StringRes val subtitleRes: Int,
     val icon: ImageVector,
 ) {
-    Play("Play", "Transport and current mix", Icons.Filled.PlayArrow),
-    Library("Library", "Choose sound packs", Icons.AutoMirrored.Filled.List),
-    Mixer("Mixer", "Balance the active packs", OnirisIcons.Mixer),
-    Timer("Timer", "Let it stop on its own", Icons.Filled.DateRange),
-    Settings("Settings", "Engine and app details", Icons.Filled.Settings),
+    Play(R.string.nav_play, R.string.nav_play_subtitle, Icons.Filled.PlayArrow),
+    Library(R.string.nav_library, R.string.nav_library_subtitle, Icons.AutoMirrored.Filled.List),
+    Mixer(R.string.nav_mixer, R.string.nav_mixer_subtitle, OnirisIcons.Mixer),
+    Timer(R.string.nav_timer, R.string.nav_timer_subtitle, Icons.Filled.DateRange),
+    Settings(R.string.nav_settings, R.string.nav_settings_subtitle, Icons.Filled.Settings),
 }
 
 /**

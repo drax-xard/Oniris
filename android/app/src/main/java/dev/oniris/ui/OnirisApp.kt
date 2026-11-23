@@ -41,8 +41,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.oniris.R
 import dev.oniris.data.PackInfo
 import dev.oniris.data.PackRepository
 import dev.oniris.data.SettingsStore
@@ -169,11 +171,11 @@ fun OnirisApp(
                     title = {
                         Column {
                             Text(
-                                text = destination.label,
+                                text = stringResource(destination.labelRes),
                                 style = MaterialTheme.typography.titleLarge,
                             )
                             Text(
-                                text = destination.subtitle,
+                                text = stringResource(destination.subtitleRes),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -182,7 +184,10 @@ fun OnirisApp(
                     navigationIcon = {
                         if (!wideLayout) {
                             IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                                Icon(Icons.Filled.Menu, contentDescription = "Open navigation")
+                                Icon(
+                                    Icons.Filled.Menu,
+                                    contentDescription = stringResource(R.string.nav_open),
+                                )
                             }
                         }
                     },
@@ -264,12 +269,12 @@ fun OnirisApp(
         Column(Modifier.padding(vertical = 24.dp)) {
             Column(Modifier.padding(horizontal = 28.dp)) {
                 Text(
-                    text = "Oniris",
+                    text = stringResource(R.string.app_name),
                     style = MaterialTheme.typography.displaySmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
                 Text(
-                    text = "Layer a night of sound.",
+                    text = stringResource(R.string.drawer_tagline),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -277,7 +282,7 @@ fun OnirisApp(
             Spacer(Modifier.height(24.dp))
             OnirisDestination.entries.forEach { item ->
                 NavigationDrawerItem(
-                    label = { Text(item.label) },
+                    label = { Text(stringResource(item.labelRes)) },
                     icon = { Icon(item.icon, contentDescription = null) },
                     selected = item == destination,
                     onClick = { select(item) },

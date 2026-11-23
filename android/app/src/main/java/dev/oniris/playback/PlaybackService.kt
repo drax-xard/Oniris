@@ -72,8 +72,14 @@ class PlaybackService : Service() {
             )
             setMetadata(
                 MediaMetadataCompat.Builder()
-                    .putString(MediaMetadataCompat.METADATA_KEY_TITLE, "Oniris")
-                    .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "Sleep soundscape")
+                    .putString(
+                        MediaMetadataCompat.METADATA_KEY_TITLE,
+                        getString(R.string.app_name),
+                    )
+                    .putString(
+                        MediaMetadataCompat.METADATA_KEY_ARTIST,
+                        getString(R.string.media_artist),
+                    )
                     .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, -1L)
                     .build(),
             )

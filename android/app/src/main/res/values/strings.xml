@@ -1,9 +1,140 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  English strings. This file is the default (unqualified) locale: every other
+  language goes in values-<lang>/strings.xml with the same keys.
+
+  Rules for translators:
+  - Keep the positional placeholders (%1$s, %2$d) - they may be reordered.
+  - Plural forms live in <plurals>; add only the quantities your language needs.
+  - After adding a language, list its tag in res/xml/locales_config.xml so
+    Android 13+ offers it in the per-app language picker.
+-->
 <resources>
+
+    <!-- App / shell -->
     <string name="app_name">Oniris</string>
-    <string name="notification_channel">Playback</string>
-    <string name="notification_playing">Playing soundscape</string>
-    <string name="notification_paused">Paused</string>
+    <string name="drawer_tagline">Layer a night of sound.</string>
+    <string name="nav_open">Open navigation</string>
+    <!--
+      Separator between status fragments, e.g. "2 layers · idle · timer off".
+      The surrounding double quotes are required: AAPT strips leading and
+      trailing whitespace from string values that are not quoted.
+    -->
+    <string name="list_separator">" · "</string>
+
+    <!-- Side navigation destinations -->
+    <string name="nav_play">Play</string>
+    <string name="nav_play_subtitle">Transport and current mix</string>
+    <string name="nav_library">Library</string>
+    <string name="nav_library_subtitle">Choose sound packs</string>
+    <string name="nav_mixer">Mixer</string>
+    <string name="nav_mixer_subtitle">Balance the active packs</string>
+    <string name="nav_timer">Timer</string>
+    <string name="nav_timer_subtitle">Let it stop on its own</string>
+    <string name="nav_settings">Settings</string>
+    <string name="nav_settings_subtitle">Engine and app details</string>
+
+    <!-- Shared actions -->
     <string name="play">Play</string>
     <string name="pause">Pause</string>
     <string name="stop">Stop</string>
+    <string name="action_refresh">Refresh</string>
+
+    <!-- Play screen -->
+    <string name="play_engine_missing">The native audio engine is not loaded on this build. Browsing works, but playback needs liboniris_jni.so built for this device.</string>
+    <string name="play_state_playing">Playing</string>
+    <string name="play_state_nothing_loaded">Nothing loaded</string>
+    <string name="play_state_ready">Ready</string>
+    <string name="play_empty_hint">Pick a few packs in the Library.</string>
+    <string name="play_choose_packs">Choose packs</string>
+    <string name="play_edit_packs">Edit packs</string>
+    <string name="play_no_selection">The library is empty of a selection. Nothing plays until at least one pack is on.</string>
+    <string name="play_status_offline">%1$d MB decoded · offline</string>
+    <string name="play_status_idle">idle</string>
+    <string name="play_status_silent">silent</string>
+    <string name="play_status_timer">timer %1$s</string>
+    <plurals name="play_layers">
+        <item quantity="one">%1$d layer</item>
+        <item quantity="other">%1$d layers</item>
+    </plurals>
+
+    <!-- Library screen -->
+    <string name="library_scanning">Scanning…</string>
+    <string name="library_none_installed">No packs installed</string>
+    <string name="library_selected_count">%1$d of %2$d selected</string>
+    <string name="library_empty_notice">No packs installed yet. Generate the development packs with `make packs`, then push one into the app\'s files/packs directory or bundle it under assets/packs.</string>
+    <plurals name="pack_beds">
+        <item quantity="one">%1$d bed</item>
+        <item quantity="other">%1$d beds</item>
+    </plurals>
+    <plurals name="pack_events">
+        <item quantity="one">%1$d event</item>
+        <item quantity="other">%1$d events</item>
+    </plurals>
+    <!-- Quoted for the same whitespace reason as list_separator. -->
+    <string name="pack_tags_separator">", "</string>
+
+    <!-- Mixer screen -->
+    <string name="mixer_master">Master</string>
+    <string name="mixer_master_percent">%1$d%%</string>
+    <string name="mixer_layers">Layers</string>
+    <string name="mixer_empty">Nothing in the mix yet.</string>
+    <string name="mixer_open_library">Open the library</string>
+    <string name="mixer_gain_hint">0 dB keeps a pack at its authored level; drag down to tuck a layer under the others.</string>
+    <string name="mixer_gain_silent">−∞ dB</string>
+    <string name="mixer_gain_unity">0 dB</string>
+    <string name="mixer_gain_boost">+%1$s dB</string>
+    <string name="mixer_gain_cut">%1$s dB</string>
+    <plurals name="mixer_pack_count">
+        <item quantity="one">%1$d pack in the mix</item>
+        <item quantity="other">%1$d packs in the mix</item>
+    </plurals>
+
+    <!-- Timer screen -->
+    <string name="timer_title_off">Timer off</string>
+    <string name="timer_title_stop_after">Stop after %1$s</string>
+    <string name="timer_notice_off">No timer. Playback keeps going until you stop it.</string>
+    <string name="timer_notice_set">After %1$s the mix fades out over 60 seconds and the session pauses. Changing the timer applies to the running session.</string>
+    <string name="timer_fade_note">The fade is sample-accurate in the audio engine, so it finishes exactly at the deadline rather than on a slow tick.</string>
+    <string name="timer_option_off">Off</string>
+    <string name="timer_option_15">15 min</string>
+    <string name="timer_option_30">30 min</string>
+    <string name="timer_option_45">45 min</string>
+    <string name="timer_option_60">1 hour</string>
+    <string name="timer_option_90">1.5 hours</string>
+    <string name="timer_short_off">off</string>
+    <string name="timer_short_15">15 min</string>
+    <string name="timer_short_30">30 min</string>
+    <string name="timer_short_45">45 min</string>
+    <string name="timer_short_60">1 h</string>
+    <string name="timer_short_90">1.5 h</string>
+    <string name="timer_short_minutes">%1$d min</string>
+
+    <!-- Settings screen -->
+    <string name="settings_audio_engine">Audio engine</string>
+    <string name="settings_engine_ready">Native (JNI) ready</string>
+    <string name="settings_engine_missing">Not available</string>
+    <string name="settings_decoded_memory">Decoded memory</string>
+    <string name="settings_decoded_value">%1$d MB · %2$d MB budget</string>
+    <string name="settings_installed_packs">Installed packs</string>
+    <string name="settings_version">Version</string>
+    <string name="settings_version_unknown">unknown</string>
+    <string name="settings_offline_notice">Playback is fully offline: packs are decoded once from app-private storage and mixed from memory, with no network, analytics, or timers running while the screen is off.</string>
+    <string name="settings_later_note">Battery optimization help, attribution, and a true-peak readout land in a later pass.</string>
+
+    <!-- Playback messages (snackbars) -->
+    <string name="msg_playback_not_initialized">Playback is not initialized</string>
+    <string name="msg_engine_not_initialized">Native engine is not initialized</string>
+    <string name="msg_engine_unavailable">Native engine is not built for this device</string>
+    <string name="msg_no_packs">Add at least one sound pack first</string>
+    <string name="msg_audio_stopping">Audio is still stopping; try again in a moment</string>
+    <string name="msg_could_not_load">Could not load %1$s</string>
+    <string name="msg_could_not_apply_mix">Could not apply the mix</string>
+
+    <!-- Media session / notification -->
+    <string name="notification_channel">Playback</string>
+    <string name="notification_playing">Playing soundscape</string>
+    <string name="notification_paused">Paused</string>
+    <string name="media_artist">Sleep soundscape</string>
+
 </resources>

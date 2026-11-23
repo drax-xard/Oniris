@@ -114,8 +114,11 @@ Ordered by logical dependency: engine → content → UX → reliability → lau
   - [ ] JNI round-trip (create/load/mix/render/destroy, error paths).
   - [ ] Android instrumentation: service lifecycle, timer stop, focus loss, process death.
 - [ ] **5.2 Accessibility & localization**
+  - [x] `strings.xml` scaffolding for localization (English first, 2026-11-23):
+        every UI string, plural, and notification string is a resource; per-app
+        language picker wired via `locales_config.xml`; workflow in
+        `docs/LOCALIZATION.md`. No second language shipped yet.
   - [ ] TalkBack labels, dynamic type up to 200%, color+icon state.
-  - [ ] `strings.xml` scaffolding for localization (English first).
 - [ ] **5.3 Store readiness**
   - [ ] Baseline profile.
   - [ ] Screenshots, listing copy, privacy policy.

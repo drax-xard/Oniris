@@ -15,8 +15,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.oniris.R
 import dev.oniris.ui.components.Notice
+
+/**
+ * Mirrors `DEFAULT_MEMORY_LIMIT` in `oniris-core` (96 MB). Kept here only for
+ * display; the engine is the one that enforces it.
+ */
+private const val MEMORY_BUDGET_MB = 96
 
 /** Engine diagnostics and app information. */
 @Composable
@@ -41,40 +49,45 @@ fun SettingsScreen(
         ) {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 InfoRow(
-                    label = "Audio engine",
-                    value = if (engineAvailable) "Native (JNI) ready" else "Not available",
+                    label = stringResource(R.string.settings_audio_engine),
+                    value = stringResource(
+                        if (engineAvailable) {
+                            R.string.settings_engine_ready
+                        } else {
+                            R.string.settings_engine_missing
+                        },
+                    ),
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
                 InfoRow(
-                    label = "Decoded memory",
-                    value = "${decodedBytes / (1024 * 1024)} MB · 96 MB budget",
+                    label = stringResource(R.string.settings_decoded_memory),
+                    value = stringResource(
+                        R.string.settings_decoded_value,
+                        (decodedBytes / (1024 * 1024)).toInt(),
+                        MEMORY_BUDGET_MB,
+                    ),
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
                 InfoRow(
-                    label = "Installed packs",
+                    label = stringResource(R.string.settings_installed_packs),
                     value = installedPacks.toString(),
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
                 InfoRow(
-                    label = "Version",
-                    value = versionName ?: "unknown",
+                    label = stringResource(R.string.settings_version),
+                    value = versionName ?: stringResource(R.string.settings_version_unknown),
                 )
             }
         }
 
         Spacer(Modifier.height(16.dp))
 
-        Notice(
-            "Playback is fully offline: packs are decoded once from app-private " +
-                "storage and mixed from memory, with no network, analytics, or timers " +
-                "running while the screen is off.",
-        )
+        Notice(stringResource(R.string.settings_offline_notice))
 
         Spacer(Modifier.height(12.dp))
 
         Text(
-            text = "Battery optimization help, attribution, and a true-peak readout " +
-                "land in a later pass.",
+            text = stringResource(R.string.settings_later_note),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

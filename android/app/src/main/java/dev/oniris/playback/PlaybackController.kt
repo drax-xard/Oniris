@@ -3,6 +3,8 @@ package dev.oniris.playback
 import android.annotation.SuppressLint
 import android.content.Context
 import android.os.PowerManager
+import androidx.annotation.StringRes
+import dev.oniris.R
 import dev.oniris.audio.AudioRenderThread
 import dev.oniris.audio.NativeEngine
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -63,26 +65,26 @@ object PlaybackController {
         get() = synchronized(lock) { selections.isNotEmpty() }
 
     fun play(): Boolean = synchronized(lock) {
-        val context = appContext ?: return fail("Playback is not initialized")
-        var current = engine ?: return fail("Native engine is not initialized")
-        if (!current.available) return fail("Native engine is not built for this device")
-        if (selections.isEmpty()) return fail("Add at least one sound pack first")
+        val context = appContext ?: return fail(R.string.msg_playback_not_initialized)
+        var current = engine ?: return fail(R.string.msg_engine_not_initialized)
+        if (!current.available) return fail(R.string.msg_engine_unavailable)
+        if (selections.isEmpty()) return fail(R.string.msg_no_packs)
         if (_isPlaying.value) return true
 
         if (loadedSelections != selections) {
             if (!stopRenderThread()) {
-                return fail("Audio is still stopping; try again in a moment")
+                return fail(R.string.msg_audio_stopping)
             }
             current.stop()
             current.close()
             current = NativeEngine()
             engine = current
             loadedSelections = emptyList()
-            if (!current.available) return fail("Native engine is not built for this device")
+            if (!current.available) return fail(R.string.msg_engine_unavailable)
 
             for (selection in selections) {
                 if (!current.loadPack(selection.dir.absolutePath)) {
-                    return fail("Could not load ${selection.id}")
+                    return fail(R.string.msg_could_not_load, selection.id)
                 }
             }
 
@@ -105,7 +107,7 @@ object PlaybackController {
 
             if (!current.setMix(json)) {
                 current.stop()
-                return fail("Could not apply the mix")
+                return fail(R.string.msg_could_not_apply_mix)
             }
             loadedSelections = selections
         }
@@ -247,8 +249,12 @@ object PlaybackController {
         wakeLock = null
     }
 
-    private fun fail(message: String): Boolean {
-        _message.value = message
+    /**
+     * Publish a localized snackbar message. The context is set by [init]; if it
+     * is somehow missing there is no UI to show a message in anyway.
+     */
+    private fun fail(@StringRes messageRes: Int, vararg args: Any): Boolean {
+        _message.value = appContext?.getString(messageRes, *args)
         return false
     }
 }
