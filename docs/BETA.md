@@ -1,7 +1,21 @@
-# Oniris 1.0.0-beta7 — tester guide
+# Oniris 1.0.0-beta8 — tester guide
 
 This is an internal, release-mode Android beta for real-device testing. It is
 not a Play Store build.
+
+## What changed in beta8
+
+- One screen per concern: Play, Presets, Library, Mixer, and Settings behind a
+  navigation drawer (permanent on tablets and in landscape). Back closes the
+  drawer, then returns to Play.
+- All UI copy lives in string resources, and the system per-app language picker
+  is wired up (English is the only shipped language).
+- Settings written by a build older than the media-session work are migrated on
+  first launch instead of crashing the app.
+- Rebuilt procedural beds: rain and fire are layered (pink wash plus droplets /
+  roar plus resonant crackles) with no sub-20 Hz waste, thunder carries
+  midrange so it survives a phone speaker, and every bed is normalised to
+  -23 LUFS.
 
 ## What is included
 
