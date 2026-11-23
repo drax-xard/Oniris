@@ -158,9 +158,14 @@ fn pink_noise(seed: u64, frames: usize) -> Vec<f32> {
     let mut right = [0.0f32; 7];
     let mut output = Vec::with_capacity(frames * 2);
 
+    // A 25 Hz guard spends the headroom on audible content: pink noise carries
+    // real energy at 20 Hz that no phone or earbud reproduces.
+    let mut hp_left = Biquad::high_pass(25.0, 0.707);
+    let mut hp_right = Biquad::high_pass(25.0, 0.707);
+
     for _ in 0..frames {
-        output.push(pink_sample(&mut left, rng.gen_range(-1.0f32..1.0)));
-        output.push(pink_sample(&mut right, rng.gen_range(-1.0f32..1.0)));
+        output.push(hp_left.process(pink_sample(&mut left, rng.gen_range(-1.0f32..1.0))));
+        output.push(hp_right.process(pink_sample(&mut right, rng.gen_range(-1.0f32..1.0))));
     }
     output
 }
@@ -185,11 +190,17 @@ fn brown_noise(seed: u64, frames: usize) -> Vec<f32> {
     let mut right = 0.0f32;
     let mut output = Vec::with_capacity(frames * 2);
 
+    // A leaky integrator piles energy up below 20 Hz where nothing reproduces
+    // it; a 30 Hz high-pass keeps the brown character but spends the headroom
+    // on audible content.
+    let mut hp_left = Biquad::high_pass(30.0, 0.707);
+    let mut hp_right = Biquad::high_pass(30.0, 0.707);
+
     for _ in 0..frames {
         left = (left + rng.gen_range(-1.0f32..1.0) * 0.02) * 0.999;
         right = (right + rng.gen_range(-1.0f32..1.0) * 0.02) * 0.999;
-        output.push(left.clamp(-0.9, 0.9));
-        output.push(right.clamp(-0.9, 0.9));
+        output.push(hp_left.process(left).clamp(-0.9, 0.9));
+        output.push(hp_right.process(right).clamp(-0.9, 0.9));
     }
     output
 }
@@ -621,8 +632,8 @@ fn generate_deep_space(dir: &Path, loop_frames: usize, fade_frames: usize) -> Re
     let after = normalize_bed_pair(
         &mut engine,
         &mut air,
-        db_to_linear(-6.0),
-        db_to_linear(-12.0),
+        db_to_linear(-8.0),
+        db_to_linear(-7.0),
     )?;
 
     let engine_file = write_audio(dir, "engine", 2, &engine, AudioFormat::Opus)?;
@@ -719,14 +730,14 @@ fn generate_deep_space(dir: &Path, loop_frames: usize, fade_frames: usize) -> Re
                 "id": "engine",
                 "file": &engine_file,
                 "loop": { "startSample": 0, "endSample": loop_frames },
-                "gainDb": -6.0,
+                "gainDb": -8.0,
                 "lfo": { "target": "gain", "depth": 0.4, "periodSec": 61.0 }
             },
             {
                 "id": "air",
                 "file": &air_file,
                 "loop": { "startSample": 0, "endSample": loop_frames },
-                "gainDb": -12.0,
+                "gainDb": -7.0,
                 "pan": 0.15,
                 "lfo": { "target": "pan", "depth": 0.2, "periodSec": 43.0 }
             }
@@ -1127,12 +1138,16 @@ fn rounded_db(value: f32) -> f64 {
 fn engine_drone(seed: u64, frames: usize) -> Vec<f32> {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
     let partials = [
-        (55.0f32, 1.0f32, 0.0008f32),
-        (110.0, 0.50, -0.0006),
-        (165.0, 0.28, 0.0004),
-        (220.0, 0.16, -0.0003),
-        (275.0, 0.09, 0.0002),
-        (330.0, 0.05, -0.0001),
+        (55.0f32, 0.55f32, 0.0008f32),
+        (110.0, 0.40, -0.0006),
+        (165.0, 0.30, 0.0004),
+        (220.0, 0.24, -0.0003),
+        (275.0, 0.20, 0.0002),
+        (330.0, 0.18, -0.0001),
+        // Upper partials carry the drone on a phone speaker, where everything
+        // below ~300 Hz is rolled off.
+        (440.0, 0.22, 0.0001),
+        (550.0, 0.18, -0.0001),
     ];
     let phases: Vec<f32> = (0..partials.len())
         .map(|_| rng.gen_range(0.0..TAU))
@@ -1143,8 +1158,10 @@ fn engine_drone(seed: u64, frames: usize) -> Vec<f32> {
     let lfo_phases: Vec<f32> = (0..partials.len())
         .map(|_| rng.gen_range(0.0..TAU))
         .collect();
-    let mut lp_l = Biquad::low_pass(420.0, 0.7);
-    let mut lp_r = Biquad::low_pass(420.0, 0.7);
+    let mut lp_l = Biquad::low_pass(1_200.0, 0.7);
+    let mut lp_r = Biquad::low_pass(1_200.0, 0.7);
+    let mut hp_l = Biquad::high_pass(40.0, 0.707);
+    let mut hp_r = Biquad::high_pass(40.0, 0.707);
     let mut output = Vec::with_capacity(frames * 2);
 
     for frame in 0..frames {
@@ -1161,8 +1178,8 @@ fn engine_drone(seed: u64, frames: usize) -> Vec<f32> {
         }
         left += rng.gen_range(-1.0f32..1.0) * 0.01;
         right += rng.gen_range(-1.0f32..1.0) * 0.01;
-        output.push((lp_l.process(left) * 0.45).clamp(-0.9, 0.9));
-        output.push((lp_r.process(right) * 0.45).clamp(-0.9, 0.9));
+        output.push((hp_l.process(lp_l.process(left)) * 0.45).clamp(-0.9, 0.9));
+        output.push((hp_r.process(lp_r.process(right)) * 0.45).clamp(-0.9, 0.9));
     }
     output
 }
@@ -1186,8 +1203,8 @@ fn air_bed(seed: u64, frames: usize) -> Vec<f32> {
         let air_r = bp_r.process(white_r) * 0.6 + lp_r.process(white_r) * 0.25;
         let low_l = rumble_l.process(white_l) * 0.08;
         let low_r = rumble_r.process(white_r) * 0.08;
-        output.push(((air_l + low_l) * swell * 0.55).clamp(-0.9, 0.9));
-        output.push(((air_r + low_r) * swell * 0.55).clamp(-0.9, 0.9));
+        output.push(((air_l + low_l) * swell * 1.15).clamp(-0.9, 0.9));
+        output.push(((air_r + low_r) * swell * 1.15).clamp(-0.9, 0.9));
     }
     output
 }
@@ -1578,6 +1595,8 @@ fn generate_rain(dir: &Path, format: AudioFormat) -> Result<()> {
     let fade = RATE as usize;
     let source = rain_source(0xA1, frames + fade);
     let bed = crossfade_loop(&source, frames, fade);
+    let measured = loudness::measure(&bed, 2, RATE);
+    let bed = loudness::apply_gain(&bed, -23.0 - measured.integrated_lufs);
     let bed_file = write_audio(dir, "rain", 2, &bed, format)?;
 
     let thunder_a = thunder(0x7A0, 6.0);
@@ -1606,7 +1625,7 @@ fn generate_rain(dir: &Path, format: AudioFormat) -> Result<()> {
             "id": "rain",
             "file": bed_file,
             "loop": { "startSample": 0, "endSample": frames as u64 },
-            "gainDb": -3.0,
+            "gainDb": 0.0,
             "lfo": { "target": "gain", "depth": 1.5, "periodSec": 47.0 }
         }],
         "events": [{
@@ -1634,6 +1653,8 @@ fn generate_fire(dir: &Path, format: AudioFormat) -> Result<()> {
     let fade = RATE as usize;
     let source = fire_source(0xF12E, frames + fade);
     let bed = crossfade_loop(&source, frames, fade);
+    let measured = loudness::measure(&bed, 2, RATE);
+    let bed = loudness::apply_gain(&bed, -23.0 - measured.integrated_lufs);
     let bed_file = write_audio(dir, "fire", 2, &bed, format)?;
 
     let crackle_a = crackle(0xC0A1, 1.2);
@@ -1662,7 +1683,7 @@ fn generate_fire(dir: &Path, format: AudioFormat) -> Result<()> {
             "id": "fire",
             "file": bed_file,
             "loop": { "startSample": 0, "endSample": frames as u64 },
-            "gainDb": -4.0,
+            "gainDb": 0.0,
             "lfo": { "target": "gain", "depth": 1.0, "periodSec": 31.0 }
         }],
         "events": [{
@@ -1703,101 +1724,286 @@ fn write_audio(
     Ok(relative)
 }
 
+/// Interleave two mono f32 channels.
+fn interleave_stereo(left: &[f32], right: &[f32]) -> Vec<f32> {
+    let mut out = Vec::with_capacity(left.len() * 2);
+    for index in 0..left.len() {
+        out.push(left[index]);
+        out.push(right[index]);
+    }
+    out
+}
+
+/// Layer a pink wash, granular droplets, and a quiet low body.
+///
+/// High-passed at 200 Hz so nothing subsonic reaches the file, and the droplet
+/// layer supplies the granular patter that makes rain recognisable.
 fn rain_source(seed: u64, frames: usize) -> Vec<f32> {
-    let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    let mut low_l = 0.0f32;
-    let mut low_r = 0.0f32;
-    let mut output = Vec::with_capacity(frames * 2);
+    let mut left = vec![0.0f32; frames];
+    let mut right = vec![0.0f32; frames];
+
+    let mut rng_mid = ChaCha8Rng::seed_from_u64(seed);
+    let mut rng_side = ChaCha8Rng::seed_from_u64(seed ^ 0x51DE);
+    let mut state_mid = [0.0f32; 7];
+    let mut state_side = [0.0f32; 7];
+    let mut hp_mid = Biquad::high_pass(200.0, 0.707);
+    let mut lp_mid = Biquad::low_pass(7_000.0, 0.707);
+    let mut hp_side = Biquad::high_pass(220.0, 0.707);
+    let mut lp_side = Biquad::low_pass(7_000.0, 0.707);
 
     for frame in 0..frames {
-        let white_l = rng.gen_range(-1.0f32..1.0);
-        let white_r = rng.gen_range(-1.0f32..1.0);
-        low_l = low_l * 0.995 + white_l * 0.005;
-        low_r = low_r * 0.995 + white_r * 0.005;
-
-        let swell = 0.85 + 0.15 * (TAU * frame as f32 / (RATE as f32 * 7.0)).sin();
-        let left = (white_l * 0.22 + low_l * 3.0) * swell * 0.45;
-        let right = (white_r * 0.20 + low_r * 3.0) * swell * 0.45;
-
-        output.push(left.clamp(-0.85, 0.85));
-        output.push(right.clamp(-0.85, 0.85));
+        let mid = lp_mid
+            .process(hp_mid.process(pink_sample(&mut state_mid, rng_mid.gen_range(-1.0f32..1.0))));
+        let side = lp_side.process(hp_side.process(pink_sample(
+            &mut state_side,
+            rng_side.gen_range(-1.0f32..1.0),
+        )));
+        left[frame] = mid * 0.8;
+        right[frame] = mid * 0.8;
+        left[frame] += side * 0.45;
+        right[frame] -= side * 0.45;
     }
 
-    output
+    let mut rng = ChaCha8Rng::seed_from_u64(seed ^ 0xD40F);
+    let mut time = 0.0f32;
+    while time < frames as f32 / RATE as f32 {
+        time += -((1.0 - rng.gen::<f32>()).ln()) / 95.0;
+        let start = (time * RATE as f32) as usize;
+        if start + 2_000 >= frames {
+            break;
+        }
+        let amplitude = 0.06 * (-1.4 * rng.gen::<f32>()).exp() * rng.gen_range(0.5f32..1.0);
+        let center = rng.gen_range(2_000.0f32..5_000.0);
+        let decay = rng.gen_range(0.0015f32..0.006);
+        let length = ((decay * 6.0) * RATE as f32) as usize + 32;
+        if start + length >= frames {
+            break;
+        }
+        let pan = rng.gen_range(-0.9f32..0.9);
+        let (gain_l, gain_r) = pan_gains(pan);
+        let mut bandpass = Biquad::bandpass(center, 1.4);
+        let mut burst_rng = ChaCha8Rng::seed_from_u64(rng.gen());
+        for offset in 0..length {
+            let t = offset as f32 / RATE as f32;
+            let envelope = (t / 0.0004).min(1.0) * (-t / decay).exp();
+            let sample = bandpass.process(burst_rng.gen_range(-1.0f32..1.0)) * envelope * amplitude;
+            left[start + offset] += sample * gain_l;
+            right[start + offset] += sample * gain_r;
+        }
+    }
+
+    let mut rng_body = ChaCha8Rng::seed_from_u64(seed ^ 0xB0D1);
+    let mut brown_l = 0.0f32;
+    let mut brown_r = 0.0f32;
+    let mut hp_l = Biquad::high_pass(60.0, 0.707);
+    let mut hp_r = Biquad::high_pass(60.0, 0.707);
+    let mut lp_l = Biquad::low_pass(150.0, 0.707);
+    let mut lp_r = Biquad::low_pass(150.0, 0.707);
+    for frame in 0..frames {
+        brown_l = (brown_l + rng_body.gen_range(-1.0f32..1.0) * 0.02) * 0.999;
+        brown_r = (brown_r + rng_body.gen_range(-1.0f32..1.0) * 0.02) * 0.999;
+        left[frame] += lp_l.process(hp_l.process(brown_l)) * 0.05;
+        right[frame] += lp_r.process(hp_r.process(brown_r)) * 0.05;
+    }
+
+    interleave_stereo(&left, &right)
 }
 
+/// Layer a low roar, thin hiss, and clustered resonant crackles.
 fn fire_source(seed: u64, frames: usize) -> Vec<f32> {
-    let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    let mut low_l = 0.0f32;
-    let mut low_r = 0.0f32;
-    let mut pop_l = 0.0f32;
-    let mut pop_r = 0.0f32;
-    let mut output = Vec::with_capacity(frames * 2);
+    let mut left = vec![0.0f32; frames];
+    let mut right = vec![0.0f32; frames];
 
-    for _ in 0..frames {
-        let white_l = rng.gen_range(-1.0f32..1.0);
-        let white_r = rng.gen_range(-1.0f32..1.0);
-        low_l = low_l * 0.998 + white_l * 0.002;
-        low_r = low_r * 0.998 + white_r * 0.002;
-
-        if rng.gen_bool(0.00035) {
-            pop_l = rng.gen_range(0.3f32..0.9);
-        }
-        if rng.gen_bool(0.00030) {
-            pop_r = rng.gen_range(0.3f32..0.9);
-        }
-        pop_l *= 0.992;
-        pop_r *= 0.992;
-
-        let left = low_l * 1.8 + pop_l * rng.gen_range(-0.6f32..0.6) + white_l * 0.015;
-        let right = low_r * 1.8 + pop_r * rng.gen_range(-0.6f32..0.6) + white_r * 0.015;
-
-        output.push(left.clamp(-0.9, 0.9));
-        output.push(right.clamp(-0.9, 0.9));
-    }
-
-    output
-}
-
-fn thunder(seed: u64, seconds: f32) -> Vec<i16> {
-    let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    let frames = (seconds * RATE as f32) as usize;
-    let mut low = 0.0f32;
-    let mut output = Vec::with_capacity(frames);
+    let mut rng_mid = ChaCha8Rng::seed_from_u64(seed);
+    let mut rng_side = ChaCha8Rng::seed_from_u64(seed ^ 0x51DE);
+    let mut state_mid = [0.0f32; 7];
+    let mut state_side = [0.0f32; 7];
+    let mut brown_mid = 0.0f32;
+    let mut brown_side = 0.0f32;
+    let mut hp_mid = Biquad::high_pass(100.0, 0.6);
+    let mut lp_mid = Biquad::low_pass(550.0, 0.7);
+    let mut hp_side = Biquad::high_pass(110.0, 0.6);
+    let mut lp_side = Biquad::low_pass(570.0, 0.7);
+    let seconds = frames as f32 / RATE as f32;
+    let cycles_a = 5.0 / seconds.max(1.0);
+    let cycles_b = 12.0 / seconds.max(1.0);
 
     for frame in 0..frames {
         let time = frame as f32 / RATE as f32;
-        let white = rng.gen_range(-1.0f32..1.0);
-        low = low * 0.997 + white * 0.003;
-
-        let attack = (time / 0.15).min(1.0);
-        let decay = (-time / 1.8).exp();
-        let second_rumble = (-(time - 2.2).abs() / 0.7).exp() * 0.35;
-        let envelope = attack * decay + second_rumble;
-        let sample = (low * 5.0 + white * 0.08) * envelope;
-
-        output.push((sample.clamp(-0.9, 0.9) * i16::MAX as f32) as i16);
+        let white_mid = rng_mid.gen_range(-1.0f32..1.0);
+        let white_side = rng_side.gen_range(-1.0f32..1.0);
+        brown_mid = (brown_mid + white_mid * 0.02) * 0.999;
+        brown_side = (brown_side + white_side * 0.02) * 0.999;
+        let mid = lp_mid.process(
+            hp_mid.process(0.6 * pink_sample(&mut state_mid, white_mid) + 0.4 * brown_mid),
+        );
+        let side = lp_side.process(
+            hp_side.process(0.6 * pink_sample(&mut state_side, white_side) + 0.4 * brown_side),
+        );
+        let breathe =
+            1.0 + 0.16 * (TAU * cycles_a * time).sin() + 0.10 * (TAU * cycles_b * time + 1.1).sin();
+        left[frame] = mid * breathe;
+        right[frame] = mid * breathe;
+        left[frame] += side * 0.5 * breathe;
+        right[frame] -= side * 0.5 * breathe;
     }
 
-    output
+    let mut rng_hiss = ChaCha8Rng::seed_from_u64(seed ^ 0x1155);
+    let mut state_l = [0.0f32; 7];
+    let mut state_r = [0.0f32; 7];
+    let mut hp_l = Biquad::high_pass(2_500.0, 0.707);
+    let mut hp_r = Biquad::high_pass(2_500.0, 0.707);
+    for frame in 0..frames {
+        left[frame] +=
+            hp_l.process(pink_sample(&mut state_l, rng_hiss.gen_range(-1.0f32..1.0))) * 0.125;
+        right[frame] +=
+            hp_r.process(pink_sample(&mut state_r, rng_hiss.gen_range(-1.0f32..1.0))) * 0.125;
+    }
+
+    let mut rng = ChaCha8Rng::seed_from_u64(seed ^ 0xC4AC);
+    let mut time = 0.0f32;
+    while time < seconds {
+        let density = if rng.gen_bool(0.3) { 22.0 } else { 6.0 };
+        time += -((1.0 - rng.gen::<f32>()).ln()) / density;
+        let start = (time * RATE as f32) as usize;
+        if start + 4_000 >= frames {
+            break;
+        }
+        let burst = if rng.gen_bool(0.35) {
+            rng.gen_range(2..5)
+        } else {
+            1
+        };
+        for index in 0..burst {
+            let offset = (index as f32 * rng.gen_range(0.02f32..0.09) * RATE as f32) as usize;
+            let event_start = start + offset;
+            let base = if index == 0 { 0.45 } else { 0.18 };
+            let amplitude = base * (-1.2 * rng.gen::<f32>()).exp();
+            let center = rng.gen_range(1_200.0f32..3_500.0);
+            let decay = rng.gen_range(0.015f32..0.06);
+            let length = ((decay * 7.0) * RATE as f32) as usize + 64;
+            if event_start + length >= frames {
+                continue;
+            }
+            let (gain_l, gain_r) = pan_gains(rng.gen_range(-0.8f32..0.8));
+            let mut bandpass = Biquad::bandpass(center, 2.5);
+            let mut burst_rng = ChaCha8Rng::seed_from_u64(rng.gen());
+            for frame in 0..length {
+                let t = frame as f32 / RATE as f32;
+                let envelope = (t / 0.0015).min(1.0) * (-t / decay).exp();
+                let carrier =
+                    0.65 * (TAU * center * t).sin() + 0.35 * burst_rng.gen_range(-1.0f32..1.0);
+                let sample = bandpass.process(carrier) * envelope * amplitude;
+                left[event_start + frame] += sample * gain_l;
+                right[event_start + frame] += sample * gain_r;
+            }
+        }
+    }
+
+    interleave_stereo(&left, &right)
 }
 
-fn crackle(seed: u64, seconds: f32) -> Vec<i16> {
-    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+/// Mono thunder: a short crack over a rolling rumble with a second roll.
+///
+/// High-passed at 28 Hz end to end, so no DC offset and no subsonic waste, with
+/// a 200-900 Hz layer that survives a phone speaker.
+fn thunder(seed: u64, seconds: f32) -> Vec<i16> {
     let frames = (seconds * RATE as f32) as usize;
-    let mut pop = 0.0f32;
-    let mut output = Vec::with_capacity(frames);
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut output = vec![0.0f32; frames];
 
-    for _ in 0..frames {
-        if rng.gen_bool(0.0015) {
-            pop = rng.gen_range(0.2f32..0.8);
-        }
-        pop *= 0.985;
-        let sample = pop * rng.gen_range(-1.0f32..1.0);
-        output.push((sample.clamp(-0.9, 0.9) * i16::MAX as f32) as i16);
+    let mut crack_hp = Biquad::high_pass(200.0, 0.7);
+    let mut crack_lp = Biquad::low_pass(1_200.0, 0.7);
+    let mut body_hi = Biquad::bandpass(380.0, 0.8);
+    let mut body_lo = Biquad::bandpass(160.0, 0.9);
+    let mut mid_hp = Biquad::high_pass(200.0, 0.7);
+    let mut mid_lp = Biquad::low_pass(900.0, 0.7);
+    let mut rumble_lp = Biquad::low_pass(160.0, 0.7);
+    let mut rumble_hp = Biquad::high_pass(55.0, 0.7);
+    let mut roll_lp = Biquad::low_pass(140.0, 0.7);
+    let mut roll_hp = Biquad::high_pass(45.0, 0.7);
+    let mut guard = Biquad::high_pass(28.0, 0.707);
+    let mut brown_rumble = 0.0f32;
+    let mut brown_roll = 0.0f32;
+    let roll_start = 1.6 + rng.gen::<f32>() * 0.8;
+
+    for (frame, slot) in output.iter_mut().enumerate() {
+        let time = frame as f32 / RATE as f32;
+        let white = rng.gen_range(-1.0f32..1.0);
+        brown_rumble = (brown_rumble + white * 0.02) * 0.999;
+        brown_roll = (brown_roll + white * 0.02) * 0.999;
+
+        let crack = crack_lp.process(crack_hp.process(white))
+            * (time / 0.004).min(1.0)
+            * (-time / 0.06).exp()
+            * 0.6;
+        let rumble = rumble_lp.process(rumble_hp.process(brown_rumble))
+            * (time / 0.03).min(1.0)
+            * (-time / 3.6).exp()
+            * (1.0 + 0.35 * (TAU * 1.1 * time + 0.4).sin())
+            * 1.3;
+        let body = body_hi.process(body_lo.process(white))
+            * (time / 0.02).min(1.0)
+            * (-time / 2.2).exp()
+            * 0.55;
+        let mid = mid_hp.process(mid_lp.process(white))
+            * (time / 0.03).min(1.0)
+            * (-time / 2.4).exp()
+            * 0.75;
+        let roll_time = time - roll_start;
+        let roll = if roll_time > 0.0 {
+            roll_lp.process(roll_hp.process(brown_roll))
+                * (roll_time / 0.05).min(1.0)
+                * (-roll_time / 1.7).exp()
+                * (1.0 + 0.3 * (TAU * 0.9 * roll_time).sin())
+                * 0.6
+        } else {
+            0.0
+        };
+
+        *slot = (crack + rumble + body + mid + roll).clamp(-0.95, 0.95);
     }
 
     output
+        .iter()
+        .map(|sample| (guard.process(*sample) * i16::MAX as f32) as i16)
+        .collect()
+}
+
+/// Mono crackle one-shot: resonant ticks of varying weight, not noise bursts.
+fn crackle(seed: u64, seconds: f32) -> Vec<i16> {
+    let frames = (seconds * RATE as f32) as usize;
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut output = vec![0.0f32; frames];
+
+    let mut time = 0.02f32;
+    while time < seconds - 0.08 {
+        let start = (time * RATE as f32) as usize;
+        let amplitude = 0.5 * (-1.5 * rng.gen::<f32>()).exp() + 0.08;
+        let center = rng.gen_range(1_500.0f32..3_500.0);
+        let decay = rng.gen_range(0.02f32..0.06);
+        let length = ((decay * 7.0) * RATE as f32) as usize + 64;
+        if start + length >= frames {
+            break;
+        }
+        let mut bandpass = Biquad::bandpass(center, 3.0);
+        let mut burst_rng = ChaCha8Rng::seed_from_u64(rng.gen());
+        for frame in 0..length {
+            if start + frame >= frames {
+                break;
+            }
+            let t = frame as f32 / RATE as f32;
+            let envelope = (t / 0.0015).min(1.0) * (-t / decay).exp();
+            let carrier = 0.7 * (TAU * center * t).sin() + 0.3 * burst_rng.gen_range(-1.0f32..1.0);
+            output[start + frame] += bandpass.process(carrier) * envelope * amplitude;
+        }
+        time += rng.gen_range(0.06f32..0.18);
+    }
+
+    output
+        .iter()
+        .map(|sample| (sample.clamp(-0.95, 0.95) * i16::MAX as f32) as i16)
+        .collect()
 }
 
 /// Crossfade the tail of a loop into its head. The input has `frames + fade`
