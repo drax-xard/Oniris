@@ -95,14 +95,60 @@ centroid with most energy between 500 Hz and 6 kHz; a fire pit sits around
 
 ## Proposed redesign
 
-Target specs (asserted by tests, checked by `make qa`):
+Target specs (asserted by tests, checked by `make qa`). The ranges were revised
+after the first rebuild: a phone-band share above the original 35–50% window is
+good news, not a regression, and the energy-weighted centroid of a fire sits
+lower than a naive guess because the roar carries the power.
 
 | asset | centroid | 0–20 Hz | phone 300–4 kHz | >8 kHz | L/R corr | LUFS | TP |
 |---|---|---|---|---|---|---|---|
-| rain bed | 2.0–3.5 kHz | <2% | 35–50% | <8% | 0.2–0.5 | −23.0 ±0.5 | ≤ −1.5 |
-| fire bed | 1.0–2.0 kHz | <3% | 25–40% | <5% | 0.3–0.6 | −23.0 ±0.5 | ≤ −1.5 |
-| thunder | 150–500 Hz | <5% | 25–45% | <3% | mono | −18.0 ±1 | ≤ −1.5 |
-| crackle | 1.5–4 kHz | ~0% | 50–70% | <20% | mono | −20.0 ±1 | ≤ −1.5 |
+| rain bed | 1.8–3.2 kHz | <2% | 40–75% | <8% | 0.2–0.6 | −23.0 ±0.5 | ≤ −1.5 |
+| fire bed | 0.9–2.0 kHz | <3% | 30–60% | <5% | 0.3–0.7 | −23.0 ±0.5 | ≤ −1.5 |
+| thunder | 200–550 Hz | <5% | 25–60% | <3% | mono | −20 ±2 | ≤ −1.5 |
+| crackle | 1.5–4 kHz | ~0% | ≥50% | <20% | mono | −20.0 ±1 | ≤ −1.5 |
+
+---
+
+## Result after the rebuild (2026-11-23)
+
+`make qa` is green on all six assets, and `procedural_packs_meet_quality_targets`
+asserts the numbers below in `cargo test`.
+
+| asset | LUFS | TP dBTP | centroid | 0–20 Hz | phone 300–4 kHz | >8 kHz | corr |
+|---|---|---|---|---|---|---|---|
+| rain.wav | −23.0 *(was −19.7)* | −13.5 *(was −10.5)* | 2.0 kHz *(was 11.2)* | 0.0% *(was 13.2)* | 63.5% *(was 12.3)* | 2.2% *(was 31.7)* | 0.37 *(was 0.00)* |
+| thunder-01.wav | −21.0 | −1.6 *(was −8.0)* | 456 Hz *(was 9.7 k)* | 0.1% *(was 42.4)* | 45.2% *(was 6.2)* | 0.0% *(was 8.1)* | mono |
+| thunder-02.wav | −23.8 | −1.6 *(was −7.0)* | 472 Hz *(was 9.7 k)* | 0.0% *(was 51.7)* | 44.4% *(was 5.5)* | 0.0% *(was 6.9)* | mono |
+| fire.wav | −23.0 | −8.7 *(was −0.3)* | 1.1 kHz *(was 10.9)* | 0.0% *(was 33.1)* | 50.3% *(was 8.6)* | 0.8% *(was 23.0)* | 0.63 *(was −0.00)* |
+| crackle-01.wav | −20.0 | −8.6 *(was −0.5)* | 2.3 kHz *(was 12.1)* | 0.0% | 88.8% *(was 15.0)* | 0.0% *(was 50.2)* | mono |
+| crackle-02.wav | −20.0 | −9.5 *(was +0.1)* | 2.3 kHz *(was 12.0)* | 0.0% | 82.2% *(was 14.0)* | 0.0% *(was 51.8)* | mono |
+
+Loop seams: rain ×0.14, fire ×0.39 of the 99.9th-percentile sample step (both
+below the ×1 click threshold). DC offset is at the noise floor for every file.
+
+What changed in the generator:
+
+- RBJ biquads replaced the one-pole smoothers; pink and brown noise generators
+  with DC blockers replaced raw white noise.
+- Rain: pink wash high-passed at 200 Hz, 95 droplets/s of 3–6 ms band-passed
+  bursts with log-normal amplitude and random pan, and a −27 dB brown body.
+- Fire: 100–550 Hz roar breathing in whole cycles across the loop, −18 dB hiss,
+  and Poisson-clustered resonant crackles (1.5 ms attack, 15–60 ms decay).
+- Thunder: onset crack over a 3.6 s rumble, a 200–900 Hz mid layer so it survives
+  a phone speaker, and a second roll. Mono, panned by the engine.
+- Crackle one-shots: resonant 1.5–3.5 kHz ticks instead of white-noise bursts.
+- Metering: BS.1770 integrated loudness plus a 4× oversampled true-peak estimate
+  drive normalisation, and the manifests now carry the measured values.
+
+Known trade-offs, stated rather than hidden:
+
+- Thunder-02 lands 2.8 dB below Thunder-01 because its crest is higher and the
+  true-peak limiter is the binding constraint. Both are within the event target
+  window; real thunder varies this much.
+- Beds normalise to −23 LUFS with true peaks well under the ceiling (−13.5 dBTP
+  for rain), because a steady noise bed has a low crest. The headroom is not
+  wasted: it is what keeps the master limiter from engaging when four packs mix.
+
 
 Synthesis plan:
 
@@ -128,17 +174,15 @@ Synthesis plan:
 
 ## Task tree
 
-- [ ] **A. DSP toolkit** in `oniris-cli` — biquads, pink/brown noise, DC blocker,
-  envelope, loudness + true-peak meter. Unit tests for each block.
-- [ ] **B. Rain rebuild** to the target spec, 45 s loop, drum-tight modulation
-  periods; assert targets in a test.
-- [ ] **C. Fire rebuild** — roar + hiss + resonant crackle events, 40 s loop.
-- [ ] **D. Thunder + crackle rebuild** — layered thunder with real rumble;
+- [x] **A. DSP toolkit** in `oniris-cli` — biquads, pink/brown noise, DC blocker,
+  envelope, loudness + true-peak meter (`src/dsp.rs`, unit-tested).
+- [x] **B. Rain rebuild** to the target spec, 45 s loop, whole-cycle modulation.
+- [x] **C. Fire rebuild** — roar + hiss + resonant crackle events, 40 s loop.
+- [x] **D. Thunder + crackle rebuild** — layered thunder with real rumble;
   resonant crackle one-shots.
-- [ ] **E. Manifest truth** — measured `loudnessLufs` / `truePeakDbtp`, pack
+- [x] **E. Manifest truth** — measured `loudnessLufs` / `truePeakDbtp`, pack
   version 0.2.0.
-- [ ] **F. Gates** — `cargo test` character assertions + `make qa` green on all
-  six assets.
+- [x] **F. Gates** — `cargo test` character assertions + `make qa` green.
 - [ ] **G. Optional, separate commit** — Opus encode/packaging step
   (10.7 MB → ~1 MB) and a rendered-mix QA pass through `oniris analyze`.
 

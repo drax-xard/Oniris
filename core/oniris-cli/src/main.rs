@@ -1,3 +1,4 @@
+mod dsp;
 mod generate;
 
 use std::path::{Path, PathBuf};

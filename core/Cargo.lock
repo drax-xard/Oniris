@@ -307,6 +307,7 @@ dependencies = [
  "rand",
  "rand_chacha",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

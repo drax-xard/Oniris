@@ -17,6 +17,11 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.85"
 
+# The generator tests synthesise ~50 s of 48 kHz audio; unoptimised DSP is slow
+# enough to make the suite painful.
+[profile.test]
+opt-level = 2
+
 [workspace.dependencies]
 anyhow = "1"
 clap = { version = "4.5", features = ["derive"] }

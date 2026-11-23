@@ -17,3 +17,6 @@ oniris-pack = { path = "../oniris-pack" }
 rand.workspace = true
 rand_chacha.workspace = true
 serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

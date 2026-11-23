@@ -93,18 +93,18 @@ def analyze(path):
     window = np.hanning(win)
     freqs = np.fft.rfftfreq(win, 1 / rate)
     psd = np.zeros(len(freqs))
-    centroids = []
     for index in range(0, len(mono) - win, hop):
         mag = np.abs(np.fft.rfft(mono[index:index + win] * window))
         psd += mag ** 2
-        if mag.sum() > 0:
-            centroids.append(float((freqs * mag).sum() / mag.sum()))
     psd /= psd.sum() if psd.sum() > 0 else 1.0
     bands = {
         f"{low}-{high}": round(100 * float(psd[(freqs >= low) & (freqs < high)].sum()), 1)
         for low, high in BANDS
     }
     flatness = float(np.exp(np.mean(np.log(psd + 1e-20))) / np.mean(psd))
+    # Energy-weighted centroid of the accumulated spectrum; a mean of per-frame
+    # centroids gets dragged upward by a handful of loud transients.
+    centroid = float((psd * freqs).sum())
 
     seam = float(abs(x[0, 0] - x[-1, 0]))
     typical_step = max(float(np.percentile(np.abs(np.diff(x[:, 0])), 99.9)), 1e-9)
@@ -124,7 +124,7 @@ def analyze(path):
         "dc_offset": [round(float(c.mean()), 6) for c in x.T],
         "stereo_corr": None if correlation is None else round(correlation, 3),
         "side_minus_mid_db": None if side_minus_mid is None else round(side_minus_mid, 2),
-        "centroid_hz": round(float(np.mean(centroids))) if centroids else None,
+        "centroid_hz": round(centroid),
         "flatness": round(flatness, 4),
         "bands_pct": bands,
         "loop_seam_delta": round(seam, 6),
