@@ -17,7 +17,8 @@ android/app/src/main/jniLibs/
 android/app/src/main/assets/packs/
 
 # Generated audio / packs
-/packs/
+/packs/*
+!/packs/index.json
 /packs-wav/
 *.wav
 *.mp3

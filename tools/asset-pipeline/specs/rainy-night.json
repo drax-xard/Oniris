@@ -1,0 +1,95 @@
+{
+  "id": "rainy-night",
+  "name": {
+    "en": "Rainy Night"
+  },
+  "description": {
+    "en": "Steady rain on a cabin roof in the forest, with distant thunder rolling through now and then."
+  },
+  "version": "0.1.0",
+  "tags": [
+    "rain",
+    "storm",
+    "night",
+    "thunder"
+  ],
+  "loudnessLufs": -23.0,
+  "truePeakDbtp": -1.5,
+  "beds": [
+    {
+      "id": "rain",
+      "source": "~/oniris-sources/masters/719062__giddster__forest-cabin-summer-rain-1.wav",
+      "loop": {
+        "startSec": 0.0,
+        "lengthSec": 60.0,
+        "crossfadeSec": 2.0
+      },
+      "highpassHz": 20,
+      "flattenDrift": {
+        "windowSec": 5.0,
+        "smoothSec": 20.0
+      },
+      "gainDb": 0.0,
+      "pan": 0.0,
+      "lfo": {
+        "target": "gain",
+        "depth": 0.4,
+        "periodSec": 53.0
+      },
+      "csvNotes": "44.1 kHz/32-float master, resampled by the pipeline; 4.5 dB decay across the take flattened before looping",
+      "notes": "60 s from 0 s with a 2 s crossfade (only 62.2 s of source exists, so this is the longest loop that leaves a full crossfade of tail). The take is recorded very quietly (peak -35.8 dBFS, 5 s RMS falling from -60 to -64.5 dB), so flattenDrift levels it toward the median before the fold; without it the loop breathes ~4.5 dB every minute. Bands are even across 120 Hz-8 kHz (no tonal peaks), which is what a rain bed needs. The take peaks at -35.8 dBFS with droplet attacks ~26 dB above the bed, so after the +34 dB normalisation the loudest drops sat at -2 dBFS with a 25 dB crest and read as sizzle: a -10 dBFS limiter with a 40 ms release pulls the crest back before the final normalise",
+      "credit": {
+        "title": "Forest cabin summer rain 1",
+        "author": "giddster",
+        "license": "CC0-1.0",
+        "url": "https://freesound.org/s/719062/",
+        "downloadDate": "2026-11-23",
+        "modified": "resampled from 44.1 kHz/32-bit float, level drift flattened, 60 s loop with 2 s equal-power crossfade, DC/rumble high-pass, normalized to -23 LUFS"
+      },
+      "limiter": {
+        "peakDb": -10.0,
+        "releaseMs": 40.0
+      }
+    }
+  ],
+  "events": [
+    {
+      "id": "thunder",
+      "gainDb": [
+        -9.0,
+        -5.0
+      ],
+      "maxVoices": 1,
+      "minIntervalSec": 45.0,
+      "maxIntervalSec": 150.0,
+      "pan": [
+        -0.5,
+        0.5
+      ],
+      "fadeInMs": 400,
+      "fadeOutMs": 1500,
+      "files": [
+        {
+          "asset": "audio/thunder-01.opus",
+          "source": "~/oniris-sources/events/nri-Thunder.mp3",
+          "trim": {
+            "startSec": 2.0,
+            "lengthSec": 14.0
+          },
+          "fadeInSec": 0.4,
+          "fadeOutSec": 1.5,
+          "highpassHz": 30,
+          "credit": {
+            "title": "Thunder",
+            "author": "National Park Service",
+            "license": "Public Domain",
+            "url": "https://www.nps.gov/subjects/sound/sounds-thunder.htm",
+            "downloadDate": "2026-11-23",
+            "modified": "trimmed to one rolling roll (2.0-16.0 s), long fades, 30 Hz high-pass kept for body, normalized to -23 LUFS and mixed 9-5 dB under the bed",
+            "csvNotes": "nps mp3 128 kbps mono; 46 s source holds one long rumble with two swells, trimmed to the first"
+          }
+        }
+      ]
+    }
+  ]
+}

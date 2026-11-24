@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "packs": [
+    {
+      "id": "forest-deep",
+      "name": {
+        "en": "Forest Deep"
+      },
+      "description": {
+        "en": "A forest at night: wind moving through leaves and canopy, with the occasional distant spotted owl."
+      },
+      "version": "0.1.0",
+      "license": "CC0-1.0",
+      "credits": "Cinetony (CC0-1.0), Fission9 (CC0-1.0), National Park Service (Public Domain)",
+      "tags": [
+        "forest",
+        "night",
+        "leaves",
+        "wind",
+        "owl"
+      ],
+      "beds": 2,
+      "events": 1,
+      "sizeBytes": 2105884,
+      "sha256": "90f594769c7a5a328cd75eac54f8498f66c0016bd1708c097a6a07f3ffdc9c2a",
+      "url": "https://github.com/drax-xard/Oniris/releases/download/forest-deep-v0.1.0/forest-deep-v0.1.0.onirispack",
+      "minAppVersionCode": 1
+    },
+    {
+      "id": "rainy-night",
+      "name": {
+        "en": "Rainy Night"
+      },
+      "description": {
+        "en": "Steady rain on a cabin roof in the forest, with distant thunder rolling through now and then."
+      },
+      "version": "0.1.0",
+      "license": "CC0-1.0",
+      "credits": "National Park Service (Public Domain), giddster (CC0-1.0)",
+      "tags": [
+        "rain",
+        "storm",
+        "night",
+        "thunder"
+      ],
+      "beds": 1,
+      "events": 1,
+      "sizeBytes": 845042,
+      "sha256": "2cb070aa52f76c29e06c589e0143f615313838c68396c1a02eac7780332039a0",
+      "url": "https://github.com/drax-xard/Oniris/releases/download/rainy-night-v0.1.0/rainy-night-v0.1.0.onirispack",
+      "minAppVersionCode": 1
+    },
+    {
+      "id": "seaside",
+      "name": {
+        "en": "Seaside"
+      },
+      "description": {
+        "en": "Light surf rolling onto a sand beach under a faint breeze."
+      },
+      "version": "0.2.0",
+      "license": "CC0-1.0",
+      "credits": "Cinetony (CC0-1.0), YevgVerh (CC0-1.0)",
+      "tags": [
+        "ocean",
+        "beach",
+        "surf",
+        "breeze",
+        "calm"
+      ],
+      "beds": 2,
+      "events": 0,
+      "sizeBytes": 1946029,
+      "sha256": "2bf47f1f5ce8f9dc6f5f4f535fb43a12c2529d64166b489cedd0b776392385bf",
+      "url": "https://github.com/drax-xard/Oniris/releases/download/seaside-v0.2.0/seaside-v0.2.0.onirispack",
+      "minAppVersionCode": 1
+    }
+  ]
+}

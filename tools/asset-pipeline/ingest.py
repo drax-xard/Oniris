@@ -275,6 +275,46 @@ def crest_db(audio):
     return round(20 * np.log10(max(peak, 1e-12) / max(rms, 1e-12)), 2)
 
 
+def moving_average(values, window):
+    """Centered moving average in O(n) (cumulative sum, edge-padded)."""
+    window = max(int(min(window, len(values))), 1)
+    cumulative = np.cumsum(np.insert(values, 0, 0.0))
+    averaged = (cumulative[window:] - cumulative[:-window]) / window
+    pad_left = window // 2
+    pad_right = len(values) - len(averaged) - pad_left
+    return np.pad(averaged, (pad_left, max(pad_right, 0)), mode="edge")[:len(values)]
+
+
+def flatten_drift(audio, window_sec=5.0, smooth_sec=20.0, max_db=12.0):
+    """Remove slow level drift so a loop does not swell and fade every pass.
+
+    A field recording that eases off (rain letting up, wind dying) cannot be
+    looped at a fixed gain without breathing at the seam. This measures a
+    windowed RMS envelope, inverts it toward the median, and smooths the gain
+    over `smooth_sec` so individual transients are untouched. The correction is
+    capped at `max_db` so a genuinely dynamic take is not flattened into a drone.
+    """
+    mono = audio.mean(axis=1)
+    window = max(int(window_sec * SAMPLE_RATE), 1)
+    hop = max(window // 2, 1)
+    starts = range(0, max(len(mono) - window, 1), hop)
+    levels, centres = [], []
+    for start in starts:
+        segment = mono[start:start + window]
+        levels.append(np.sqrt((segment ** 2).mean()))
+        centres.append(start + window // 2)
+    levels = 20 * np.log10(np.maximum(np.array(levels), 1e-12))
+    target = float(np.median(levels))
+    correction = np.clip(target - levels, -max_db, max_db)
+    curve = np.interp(np.arange(len(mono)), np.array(centres), correction)
+    curve = moving_average(curve, int(smooth_sec * SAMPLE_RATE))
+    info = {
+        "drift_db": round(float(levels.max() - levels.min()), 1),
+        "correction_db": [round(float(correction.min()), 1), round(float(correction.max()), 1)],
+    }
+    return audio * (10 ** (curve / 20))[:, None], info
+
+
 # --------------------------------------------------------------- processing
 
 
@@ -333,6 +373,18 @@ def ingest_bed(bed, work, pack_dir, target_lufs, true_peak):
     dc = [round(float(channel.mean()), 6) for channel in audio.T]
     audio = audio - audio.mean(axis=0)  # residual DC after the high-pass
 
+    drift_info = None
+    drift = bed.get("flattenDrift")
+    if drift:
+        options = drift if isinstance(drift, dict) else {}
+        audio, drift_info = flatten_drift(
+            audio,
+            options.get("windowSec", 5.0),
+            options.get("smoothSec", 20.0),
+        )
+        print(f"   drift {drift_info['drift_db']} dB flattened by "
+              f"{drift_info['correction_db'][0]}..{drift_info['correction_db'][1]} dB", flush=True)
+
     loop_spec = bed["loop"]
     looped, loop_info = loop_region(
         audio,
@@ -380,6 +432,7 @@ def ingest_bed(bed, work, pack_dir, target_lufs, true_peak):
         "loop_frames": len(looped),
         **loop_info,
         "dc_offset_before": dc,
+        "drift": drift_info,
         "seam_delta": round(seam_samples, 6),
         "seam_vs_p99": round(seam_samples / step, 2),
         "seam_spectral": cosine_seam(looped),
