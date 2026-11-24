@@ -1,0 +1,131 @@
+{
+  "id": "forest-deep",
+  "name": {
+    "en": "Forest Deep"
+  },
+  "description": {
+    "en": "A forest at night: wind moving through leaves and canopy, with the occasional distant spotted owl."
+  },
+  "version": "0.1.0",
+  "tags": [
+    "forest",
+    "night",
+    "leaves",
+    "wind",
+    "owl"
+  ],
+  "loudnessLufs": -23.0,
+  "truePeakDbtp": -1.5,
+  "beds": [
+    {
+      "id": "forest",
+      "source": "~/oniris-sources/masters/467971__fission9__lot-2-forest.wav",
+      "loop": {
+        "startSec": 40.0,
+        "lengthSec": 120.0,
+        "crossfadeSec": 3.0
+      },
+      "highpassHz": 45,
+      "eq": [
+        {
+          "filter": "treble",
+          "f": 4000,
+          "g": -4
+        },
+        {
+          "filter": "bass",
+          "f": 180,
+          "g": 1.5
+        }
+      ],
+      "gainDb": -0.7,
+      "pan": 0.0,
+      "lfo": {
+        "target": "gain",
+        "depth": 0.5,
+        "periodSec": 59.0
+      },
+      "limiter": {
+        "peakDb": -12.0,
+        "releaseMs": 30.0
+      },
+      "notes": "120 s from 40 s: seam 0.08x p99.9, -0.3 dB across the wrap, head/tail corr 0.84. The 10 s window looked flatter but contains a close-rustle cluster at master 24-29 s with crest 31 dB, which forced normalisation down to -23.7 LUFS at a -1.5 dBTP ceiling; this window peaks at -17.2 dBFS and reaches -23.0 LUFS with 24.7 dB crest. Even so, the take has close-mic rustle snaps that step 0.3-0.5 of full scale in one sample (-6 dBFS peaks ~24 dB over the bed) and read as crackle: a -12 dBFS transient limiter with a 30 ms release brings the crest down before the final normalise. gainDb -0.7 puts the two-bed mix on the -23.0 LUFS target (the rustle layer alone would push it to -22.3). Raw balance is bright (31% of energy 3-8 kHz, centroid 1997 Hz); treble -4 dB at 4 kHz and +1.5 dB bass at 180 Hz bring the centroid to ~1475 Hz",
+      "credit": {
+        "title": "Lot 2 Forest",
+        "author": "Fission9",
+        "license": "CC0-1.0",
+        "url": "https://freesound.org/s/467971/",
+        "downloadDate": "2026-11-23",
+        "modified": "trimmed, 150 s loop with 3 s equal-power crossfade, DC removal, 45 Hz high-pass, shelving EQ (treble -4 dB at 4 kHz, bass +1.5 dB at 180 Hz), normalized to -23 LUFS"
+      },
+      "csvNotes": "bright take: treble -4/bass +1.5 EQ and -12 dBFS limiter; 40 s window avoided the 31 dB crest cluster"
+    },
+    {
+      "id": "rustle",
+      "source": "~/oniris-sources/masters/575380__cinetony__leaves-rustle-in-the-wind.wav",
+      "loop": {
+        "startSec": 36.0,
+        "lengthSec": 50.0,
+        "crossfadeSec": 2.5
+      },
+      "highpassHz": 60,
+      "gainDb": -9.0,
+      "pan": 0.0,
+      "lfo": {
+        "target": "gain",
+        "depth": 1.0,
+        "periodSec": 31.0
+      },
+      "notes": "fills the 300-1000 Hz dip in the Lot 2 Forest take (2.9% of its energy there) and adds close leaf detail; 50 s window at 36 s, seam 0.03x, -0.9 dB across the wrap",
+      "credit": {
+        "title": "Leaves rustle in the wind",
+        "author": "Cinetony",
+        "license": "CC0-1.0",
+        "url": "https://freesound.org/s/575380/",
+        "downloadDate": "2026-11-23",
+        "modified": "trimmed, 50 s loop with 2.5 s equal-power crossfade, high-passed at 60 Hz, normalized to -23 LUFS and mixed 9 dB under the forest bed"
+      },
+      "csvNotes": "fills the 300-1000 Hz dip of the forest take; 50 s window at 36 s"
+    }
+  ],
+  "events": [
+    {
+      "id": "owl",
+      "gainDb": [
+        -9.0,
+        -6.0
+      ],
+      "maxVoices": 1,
+      "minIntervalSec": 90.0,
+      "maxIntervalSec": 240.0,
+      "pan": [
+        -0.8,
+        0.8
+      ],
+      "fadeInMs": 20,
+      "fadeOutMs": 300,
+      "files": [
+        {
+          "asset": "audio/owl-01.opus",
+          "source": "~/oniris-sources/events/nri-SpottedOwlYOSE.mp3",
+          "trim": {
+            "startSec": 0.25,
+            "lengthSec": 4.4
+          },
+          "fadeInSec": 0.02,
+          "fadeOutSec": 0.3,
+          "highpassHz": 80,
+          "credit": {
+            "title": "Spotted Owl",
+            "author": "National Park Service",
+            "license": "Public Domain",
+            "url": "https://www.nps.gov/subjects/sound/sounds-spotted-owl.htm",
+            "downloadDate": "2026-11-23",
+            "modified": "trimmed to the full four-hoot call (0.25-4.65 s), faded, high-passed at 80 Hz, normalized to -23 LUFS and mixed 9-6 dB under the bed",
+            "notes": "nps mp3 128 kbps mono, near-full-scale peaks and a -31 dB background between hoots; deliberately kept quiet and rare"
+          }
+        }
+      ]
+    }
+  ]
+}

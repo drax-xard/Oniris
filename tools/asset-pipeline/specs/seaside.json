@@ -1,22 +1,38 @@
 {
   "id": "seaside",
-  "name": { "en": "Seaside" },
-  "description": {
-    "en": "Light surf rolling onto a sand beach with the occasional western gull overhead."
+  "name": {
+    "en": "Seaside"
   },
-  "version": "0.1.0",
-  "tags": ["ocean", "beach", "surf", "gulls", "calm"],
+  "description": {
+    "en": "Light surf rolling onto a sand beach under a faint breeze."
+  },
+  "version": "0.2.0",
+  "tags": [
+    "ocean",
+    "beach",
+    "surf",
+    "breeze",
+    "calm"
+  ],
   "loudnessLufs": -23.0,
   "truePeakDbtp": -1.5,
   "beds": [
     {
       "id": "surf",
       "source": "~/oniris-sources/masters/827530__yevgverh__ocean_coast_04_092025_0659am.wav",
-      "loop": { "startSec": 20.0, "lengthSec": 120.0, "crossfadeSec": 3.0 },
+      "loop": {
+        "startSec": 20.0,
+        "lengthSec": 120.0,
+        "crossfadeSec": 3.0
+      },
       "highpassHz": 20,
       "gainDb": 0.0,
       "pan": 0.0,
-      "lfo": { "target": "gain", "depth": 0.6, "periodSec": 47.0 },
+      "lfo": {
+        "target": "gain",
+        "depth": 0.6,
+        "periodSec": 47.0
+      },
       "notes": "start 20 s chosen: 120 s window with +0.2 dB level continuity across the wrap",
       "credit": {
         "title": "Ocean_coast_04_092025_0659am",
@@ -25,55 +41,36 @@
         "url": "https://freesound.org/s/827530/",
         "downloadDate": "2026-11-23",
         "modified": "trimmed, 120 s loop with 3 s equal-power crossfade, DC/rumble high-pass, normalized to -23 LUFS"
-      }
+      },
+      "csvNotes": "start 20 s: 120 s window with +0.2 dB level continuity across the wrap"
+    },
+    {
+      "id": "breeze",
+      "source": "~/oniris-sources/masters/575380__cinetony__leaves-rustle-in-the-wind.wav",
+      "loop": {
+        "startSec": 36.0,
+        "lengthSec": 40.0,
+        "crossfadeSec": 2.5
+      },
+      "highpassHz": 60,
+      "gainDb": -12.0,
+      "pan": 0.0,
+      "lfo": {
+        "target": "gain",
+        "depth": 1.0,
+        "periodSec": 29.0
+      },
+      "notes": "support layer, not a bed on its own: 40 s window at 36 s is the flattest available (6.9 dB gust spread) with a -0.4 dB wrap; the take drifts ~13 dB end to end, so a longer loop would step at the seam",
+      "credit": {
+        "title": "Leaves rustle in the wind",
+        "author": "Cinetony",
+        "license": "CC0-1.0",
+        "url": "https://freesound.org/s/575380/",
+        "downloadDate": "2026-11-23",
+        "modified": "trimmed, 40 s loop with 2.5 s equal-power crossfade, high-passed at 60 Hz, normalized to -23 LUFS and mixed 12 dB under the surf"
+      },
+      "csvNotes": "support layer 12 dB under surf; 40 s window at 36 s, 0.03x seam"
     }
   ],
-  "events": [
-    {
-      "id": "gull",
-      "gainDb": [-2.0, 0.5],
-      "maxVoices": 1,
-      "minIntervalSec": 25.0,
-      "maxIntervalSec": 70.0,
-      "pan": [-0.65, 0.4],
-      "fadeInMs": 10,
-      "fadeOutMs": 200,
-      "files": [
-        {
-          "asset": "audio/gull-01.opus",
-          "source": "~/oniris-sources/events/588a7add-3839-4eb9-86f1-66cfd867224a.mp3",
-          "trim": { "startSec": 0.90, "lengthSec": 1.85 },
-          "fadeInSec": 0.02,
-          "fadeOutSec": 0.15,
-          "highpassHz": 80,
-          "credit": {
-            "title": "Western Gull",
-            "author": "National Park Service",
-            "license": "Public Domain",
-            "url": "https://www.nps.gov/subjects/sound/sounds-western-gull.htm",
-            "downloadDate": "2026-11-23",
-            "modified": "trimmed to one call burst (0.90-2.75 s), faded, normalized to -23 LUFS",
-            "notes": "nps mp3 128 kbps mono; broad hiss, acceptable for a sparse event"
-          }
-        },
-        {
-          "asset": "audio/gull-02.opus",
-          "source": "~/oniris-sources/events/588a7add-3839-4eb9-86f1-66cfd867224a.mp3",
-          "trim": { "startSec": 2.75, "lengthSec": 1.17 },
-          "fadeInSec": 0.02,
-          "fadeOutSec": 0.15,
-          "highpassHz": 80,
-          "credit": {
-            "title": "Western Gull",
-            "author": "National Park Service",
-            "license": "Public Domain",
-            "url": "https://www.nps.gov/subjects/sound/sounds-western-gull.htm",
-            "downloadDate": "2026-11-23",
-            "modified": "trimmed to one call burst (2.75-3.92 s), faded, normalized to -23 LUFS",
-            "notes": "nps mp3 128 kbps mono; broad hiss, acceptable for a sparse event"
-          }
-        }
-      ]
-    }
-  ]
+  "events": []
 }

@@ -131,10 +131,24 @@ def decode(path, channels, trim=None, filters=None):
     return audio
 
 
+def load_float(path, channels=2):
+    """Decode any audio file to float64 at 48 kHz."""
+    raw = run(["ffmpeg", "-v", "error", "-i", path, "-map", "0:a:0",
+               "-ac", str(channels), "-ar", str(SAMPLE_RATE),
+               "-f", "f32le", "-acodec", "pcm_f32le", "-"], binary=True).stdout
+    return np.frombuffer(raw, dtype="<f4").astype(np.float64).reshape(-1, channels)
+
+
 def write_wav(path, audio, bit_depth="f32"):
+    """Write float audio as a 48 kHz WAV.
+
+    The pipe is always float: feeding raw s16 bytes into a stream declared as
+    f32le makes ffmpeg read half as many samples, so the file comes out at half
+    the requested duration.
+    """
     channels = audio.shape[1]
     codec = "pcm_f32le" if bit_depth == "f32" else "pcm_s16le"
-    data = audio.astype("<f4" if bit_depth == "f32" else "<i2").tobytes()
+    data = audio.astype("<f4").tobytes()
     run(["ffmpeg", "-v", "error", "-y", "-f", "f32le", "-ar", str(SAMPLE_RATE),
          "-ac", str(channels), "-i", "-", "-c:a", codec, str(path)], input_bytes=data)
 
@@ -215,6 +229,52 @@ def loop_region(audio, length_sec, crossfade_sec, start_sec=0.0):
     }
 
 
+def running_max(values, window):
+    """Sliding maximum (van Herk / Gil-Werman), O(n)."""
+    window = max(int(window), 1)
+    n = len(values)
+    pad = (-n) % window
+    padded = np.pad(values, (0, pad), constant_values=-np.inf) if pad else values
+    blocks = padded.reshape(-1, window)
+    forward = np.maximum.accumulate(blocks, axis=1).ravel()
+    backward = np.maximum.accumulate(blocks[:, ::-1], axis=1)[:, ::-1].ravel()
+    index = np.arange(n)
+    return np.maximum(backward[index], forward[np.minimum(index + window - 1, len(forward) - 1)])
+
+
+def limit_transients(audio, peak_db, attack_ms=5.0, release_ms=30.0):
+    """Pull down isolated transients with a smooth gain envelope.
+
+    Field beds are often mostly quiet with a few close-mic rustles 20 dB above
+    the bed. Left alone they set the true-peak ceiling, so the whole bed has to
+    be normalised quieter, and the surviving snaps still read as crackle on a
+    phone speaker. This caps the envelope at `peak_db` and smooths the gain
+    change over `release_ms`, which is inaudible on ambience and leaves the
+    steady-state level untouched.
+
+    The detector is a sliding *maximum*, not a moving average: an isolated
+    single-sample snap disappears inside a 3 ms mean, so the limiter would never
+    engage on exactly the events it exists for.
+    """
+    attack = max(int(attack_ms / 1000 * SAMPLE_RATE), 1)
+    envelope = running_max(np.abs(audio).max(axis=1), attack)
+
+    threshold = 10 ** (peak_db / 20)
+    gain = np.minimum(1.0, threshold / np.maximum(envelope, 1e-12))
+    release = max(int(release_ms / 1000 * SAMPLE_RATE), 1)
+    gain = np.convolve(gain, np.ones(release) / release, mode="same")
+    # The smoothed gain can dip after the transient ends; clamping keeps the
+    # envelope attack from being softened into the event.
+    gain = np.minimum(gain, 1.0)
+    return audio * gain[:, None]
+
+
+def crest_db(audio):
+    peak = float(np.abs(audio).max())
+    rms = float(np.sqrt((audio.mean(axis=1) ** 2).mean()))
+    return round(20 * np.log10(max(peak, 1e-12) / max(rms, 1e-12)), 2)
+
+
 # --------------------------------------------------------------- processing
 
 
@@ -241,7 +301,7 @@ def gate(path):
     return result.stdout.strip().splitlines()[-1]
 
 
-def cleanup_filters(highpass_hz=None, hum_hz=None, lowpass_hz=None):
+def cleanup_filters(highpass_hz=None, hum_hz=None, lowpass_hz=None, eq=None):
     parts = []
     if highpass_hz:
         # Removes DC and sub-rumble; 12 dB/oct keeps the low bed intact.
@@ -251,6 +311,11 @@ def cleanup_filters(highpass_hz=None, hum_hz=None, lowpass_hz=None):
             parts.append(f"bandreject=f={hum_hz * harmonic}:width_type=h:w=2")
     if lowpass_hz:
         parts.append(f"lowpass=f={lowpass_hz}:poles=2")
+    # Tonal shaping: [{"filter": "treble", "f": 4500, "g": -3}, ...] uses ffmpeg's
+    # bass/treble shelves, which is how a bright field recording is pulled back
+    # toward a sleep-friendly balance without inventing content.
+    for shelf in eq or []:
+        parts.append(f"{shelf['filter']}=f={shelf['f']}:g={shelf['g']}:width_type=q:w={shelf.get('w', 0.7)}")
     return ",".join(parts) or None
 
 
@@ -261,7 +326,8 @@ def ingest_bed(bed, work, pack_dir, target_lufs, true_peak):
 
     trim = bed.get("trim")
     trim = (trim["startSec"], trim["startSec"] + trim["lengthSec"]) if trim else None
-    filters = cleanup_filters(bed.get("highpassHz", 20), bed.get("humHz"), bed.get("lowpassHz"))
+    filters = cleanup_filters(bed.get("highpassHz", 20), bed.get("humHz"), bed.get("lowpassHz"),
+                              bed.get("eq"))
     audio = decode(source, 2, trim=trim, filters=filters)
 
     dc = [round(float(channel.mean()), 6) for channel in audio.T]
@@ -282,6 +348,22 @@ def ingest_bed(bed, work, pack_dir, target_lufs, true_peak):
 
     norm_path = work / f"{bed['id']}-norm.wav"
     normalize_to(raw_path, norm_path, target_lufs, true_peak)
+
+    # Optional transient control: limit the bed, then normalise again so the
+    # headroom freed by the limiter goes back into the steady-state level.
+    limiter = bed.get("limiter")
+    if limiter:
+        limited = limit_transients(
+            load_float(norm_path),
+            limiter["peakDb"],
+            limiter.get("releaseMs", 30.0),
+        )
+        limited_path = work / f"{bed['id']}-limited.wav"
+        write_wav(limited_path, limited, bit_depth="s16")
+        normalize_to(limited_path, norm_path, target_lufs, true_peak)
+        print(f"   limiter {limiter['peakDb']} dBFS: crest "
+              f"{crest_db(limited)} dB before re-normalising", flush=True)
+
     gate_result = gate(norm_path)
     stats = measure(norm_path)
 
@@ -324,7 +406,8 @@ def ingest_event(event, work, pack_dir, target_lufs, true_peak):
             trim = (file_spec["trim"]["startSec"],
                     file_spec["trim"]["startSec"] + file_spec["trim"]["lengthSec"])
         filters = cleanup_filters(
-            file_spec.get("highpassHz", 60), file_spec.get("humHz"), file_spec.get("lowpassHz"))
+            file_spec.get("highpassHz", 60), file_spec.get("humHz"), file_spec.get("lowpassHz"),
+            file_spec.get("eq"))
         audio = decode(source, 1, trim=trim, filters=filters)
         audio = apply_fades(audio,
                             file_spec.get("fadeInSec", 0.01),
@@ -352,6 +435,86 @@ def ingest_event(event, work, pack_dir, target_lufs, true_peak):
             "credit": file_spec["credit"],
         })
     return results
+
+
+def ebur128(path):
+    """Integrated loudness and true peak through ffmpeg's scanner."""
+    stderr = run(["ffmpeg", "-hide_banner", "-nostats", "-i", path,
+                  "-af", "ebur128=peak=true", "-f", "null", "-"]).stderr
+    summary = stderr.split("Summary:")[-1]
+    integrated = true_peak = None
+    for line in summary.splitlines():
+        line = line.strip()
+        if line.startswith("I:") and integrated is None:
+            integrated = float(line.split()[1])
+        elif line.startswith("Peak:") and true_peak is None:
+            true_peak = float(line.split()[1])
+    return integrated, true_peak
+
+
+def render_pack(pack_dir, out, minutes, seed):
+    return oniris_cli("render", "--pack", pack_dir, "--minutes", str(minutes),
+                      "--seed", str(seed), "--out", out).stdout.strip()
+
+
+def verify_mix(spec, pack_dir, work, minutes=3, seed=1, tolerance=0.5):
+    """Render the pack and check the mix, not just the individual assets.
+
+    Each bed is normalised to the pack target on its own, so the sum of two beds
+    plays back louder than either one. This measures the mix and every bed's
+    solo contribution at its manifest gain, which is the number that decides
+    whether a support layer is audible or lost.
+    """
+    target = spec.get("loudnessLufs", -23.0)
+    ceiling = spec.get("truePeakDbtp", -1.5)
+    mix_path = work / "verify-mix.wav"
+    render_pack(pack_dir, mix_path, minutes, seed)
+    mix_lufs, mix_tp = ebur128(mix_path)
+
+    manifest = json.loads((pack_dir / "manifest.json").read_text())
+    solo = []
+    for bed in manifest["beds"]:
+        solo_dir = work / f"solo-{bed['id']}"
+        if solo_dir.exists():
+            shutil.rmtree(solo_dir)
+        (solo_dir / "audio").mkdir(parents=True)
+        os.symlink(pack_dir / bed["file"], solo_dir / bed["file"])
+        single = dict(manifest, beds=[bed], events=[],
+                      credits=[c for c in manifest["credits"] if c["asset"] == bed["file"]])
+        (solo_dir / "manifest.json").write_text(json.dumps(single))
+        path = work / f"solo-{bed['id']}.wav"
+        render_pack(solo_dir, path, minutes, seed)
+        lufs, true_peak = ebur128(path)
+        solo.append({
+            "id": bed["id"],
+            "gain_db": bed["gainDb"],
+            "lufs": lufs,
+            "true_peak": true_peak,
+            "vs_mix": (round(lufs - mix_lufs, 2)
+                       if lufs is not None and mix_lufs is not None else None),
+        })
+
+    problems = []
+    if mix_lufs is not None and abs(mix_lufs - target) > tolerance:
+        problems.append(f"mix {mix_lufs} LUFS is {mix_lufs - target:+.1f} LU from the "
+                        f"{target} LUFS pack target (tolerance {tolerance})")
+    if mix_tp is not None and mix_tp > ceiling:
+        problems.append(f"mix true peak {mix_tp} dBTP exceeds {ceiling} dBTP")
+    return {
+        "mix": {"lufs": mix_lufs, "true_peak": mix_tp, "target_lufs": target,
+                "target_true_peak": ceiling, "minutes": minutes, "seed": seed},
+        "beds": solo,
+        "problems": problems,
+    }
+
+
+def csv_notes(item):
+    """Short audition note for the CSV; the spec's `notes` is often a long
+    rationale, so prefer an explicit `csvNotes` and truncate the fallback."""
+    if item.get("csvNotes"):
+        return item["csvNotes"]
+    notes = item.get("notes", "")
+    return notes if len(notes) <= 140 else notes[:137].rstrip() + "..."
 
 
 # ---------------------------------------------------------------- packaging
@@ -527,7 +690,13 @@ def update_sources_csv(rows):
         key = (row["pack"], row["role"], row["url"])
         if key in merged:
             row.update({k: str(v) for k, v in merged[key].items() if k in fieldnames})
+            del merged[key]
             updated += 1
+    # A source with no row yet gets appended: the log is meant to be complete,
+    # and a new asset silently missing its SHA-256 is the TODO nobody audits.
+    for key, row in merged.items():
+        existing.append({field: str(row.get(field, "")) for field in fieldnames})
+        updated += 1
 
     with open(path, "w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
@@ -568,7 +737,17 @@ def main():
     build.add_argument("--work", default=None, help="work directory for intermediate WAVs")
     build.add_argument("--only", default=None, help="ingest only this bed/event id")
     build.add_argument("--skip-package", action="store_true", help="stop before oniris pack")
+    build.add_argument("--skip-verify", action="store_true", help="skip the mix render check")
     build.add_argument("--no-csv", action="store_true", help="do not update sources.csv")
+
+    verify_cmd = sub.add_parser("verify", help="render the built pack and check the mix")
+    verify_cmd.add_argument("spec")
+    verify_cmd.add_argument("--out", default=None)
+    verify_cmd.add_argument("--work", default=None)
+    verify_cmd.add_argument("--minutes", type=int, default=3)
+    verify_cmd.add_argument("--seed", type=int, default=1)
+    verify_cmd.add_argument("--tolerance", type=float, default=0.5,
+                            help="allowed LU deviation from the pack loudness target")
 
     probe_cmd = sub.add_parser("probe", help="print format and SHA-256 for sources")
     probe_cmd.add_argument("paths", nargs="+")
@@ -586,6 +765,24 @@ def main():
     pack_dir = Path(os.path.expanduser(args.out)) if args.out else REPO / "dist" / "packs" / spec["id"]
     work = Path(os.path.expanduser(args.work)) if args.work else REPO / "dist" / "work" / spec["id"]
     work.mkdir(parents=True, exist_ok=True)
+
+    if args.command == "verify":
+        result = verify_mix(spec, pack_dir, work, args.minutes, args.seed, args.tolerance)
+        mix = result["mix"]
+        print(f"mix  {mix['lufs']} LUFS  TP {mix['true_peak']} dBTP"
+              f"  (target {mix['target_lufs']} LUFS / {mix['target_true_peak']} dBTP,"
+              f" {mix['minutes']} min seed {mix['seed']})")
+        for bed in result["beds"]:
+            print(f"  {bed['id']:<8} gain {bed['gain_db']:+6.1f} dB"
+                  f"  solo {bed['lufs']} LUFS  ({bed['vs_mix']:+.1f} LU vs mix)")
+        for problem in result["problems"]:
+            print(f"  FAIL {problem}")
+        return 1 if result["problems"] else 0
+
+    # A full build starts from an empty pack directory: a removed bed or event
+    # must not survive as an orphan file that packaging would still ship.
+    if not args.only and pack_dir.exists() and (REPO / "dist") in pack_dir.parents:
+        shutil.rmtree(pack_dir)
     pack_dir.mkdir(parents=True, exist_ok=True)
 
     target_lufs = spec.get("loudnessLufs", -23.0)
@@ -623,7 +820,7 @@ def main():
             "duration_sec": info["duration_sec"],
             "edits": (f"trim {result['trimmed_sec']}s, loop {result['loop_sec']}s "
                       f"xfade {result['crossfade_sec']}s, dc+rumble, -{abs(target_lufs)} LUFS"),
-            "notes": bed.get("notes", ""),
+            "notes": csv_notes(bed),
         })
 
     for event in spec.get("events", []):
@@ -652,7 +849,7 @@ def main():
                 "channels": info["channels"],
                 "duration_sec": info["duration_sec"],
                 "edits": f"trim {asset_file['trimmed_sec']}s, fades, -{abs(target_lufs)} LUFS",
-                "notes": asset_file["credit"].get("notes", ""),
+                "notes": csv_notes(asset_file["credit"]),
             })
 
     if not beds and not events:
@@ -664,6 +861,19 @@ def main():
 
     validate = oniris_cli("validate", pack_dir).stdout
     print(f"== validate OK  {validate.strip()}", flush=True)
+
+    if not args.skip_verify:
+        result = verify_mix(spec, pack_dir, work, minutes=3, seed=1)
+        mix = result["mix"]
+        print(f"== mix  {mix['lufs']} LUFS  TP {mix['true_peak']} dBTP"
+              f"  (target {mix['target_lufs']} / {mix['target_true_peak']} dBTP)", flush=True)
+        for bed in result["beds"]:
+            print(f"   {bed['id']:<8} gain {bed['gain_db']:+6.1f} dB"
+                  f"  solo {bed['lufs']} LUFS  ({bed['vs_mix']:+.1f} LU vs mix)", flush=True)
+        if result["problems"]:
+            for problem in result["problems"]:
+                print(f"   FAIL {problem}", flush=True)
+            raise SystemExit("mix check failed; tune the spec's gainDb or loudnessLufs")
 
     if not args.no_csv:
         count = update_sources_csv(csv_rows)

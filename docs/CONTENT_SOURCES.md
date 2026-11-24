@@ -237,13 +237,21 @@ after auditioning 3–5 candidates per role.
   - **Chosen:** `YevgVerh` 827530, CC0, 48 kHz/16-bit stereo, 3:01. Spec:
     `tools/asset-pipeline/specs/seaside.json`; loop 120 s from 20 s with a 3 s
     equal-power crossfade (0.19x p99.9 seam step, +0.2 dB across the join).
+  - **Second bed, shipped:** `Cinetony` 575380 "Leaves rustle in the wind" (CC0,
+    48 kHz/24-bit, 1:46) at −12 dB under the surf as a faint breeze — 40 s loop
+    from 36 s (0.03x seam), lifting the 3–8 kHz band by ~1.8 dB and the audible
+    top octave by ~4 dB without touching the surf's low end.
 - **Second bed (optional):** distant deep surf, or a quieter lapping texture.
-- **Events:** western gull (NPS, public domain), seagulls (Freesound CC0
-  `felix.blume` 155747).
-  - **Chosen:** NPS Western Gull, two call bursts cut at 0.90-2.75 s and
-    2.75-3.92 s of the 4.7 s clip, at -2..+0.5 dB over the bed.
+- **Events:** the first pilot used two NPS western gull bursts at −2..+0.5 dB over
+  the bed; the gull was **removed for shipping** because it reads as disruptive
+  in a sleep context. The NPS clip is a usable event for a daytime/awake variant,
+  not for this pack.
+- **Status:** v0.2.0 built, validated, mix-checked, imported and played on the
+  emulator (`dev.oniris`, "Playing · 29 MB decoded"). Ships as
+  `dist/seaside.onirispack`, sha256 `2bf47f1f…`.
 - **Target license:** CC0/PD preferred; CC BY if Luftrum is used. The pilot ships
-  CC0 (Freesound CC0 + NPS public domain).
+  CC0 (Freesound CC0 only).
+
 
 ### 3. Cabin Fire (`cabin-fire`)
 
@@ -284,7 +292,17 @@ after auditioning 3–5 candidates per role.
   Recording Project rivers; Freesound CC0 streams).
 - **Events:** spotted owl (NPS), crickets (NPS or Freesound CC0), dawn chorus
   (NPS), frogs (NPS/Freesound CC0).
-- **Target license:** CC0/PD preferred; CC BY if Luftrum is used.
+  - **Chosen:** NPS Spotted Owl, the full four-hoot call trimmed to 0.25–4.65 s,
+    fired every 90–240 s at −9..−6 dB under the bed and panned wide. Measured in
+    a 10-minute render: 3 instances, each 7.8–10.5 dB below the local bed level,
+    so it is a distant owl rather than a foreground one.
+- **Status:** v0.1.0 built from Fission9 467971 + Cinetony 575380 (both CC0),
+  mix −23.0 LUFS / −9.2 dBTP, ships as `dist/forest-deep.onirispack`, sha256
+  `90f59476…`. Two decisions worth keeping: the 40 s loop window (the 10 s one
+  had a 31 dB crest that forced −23.7 LUFS), and a −12 dBFS transient limiter on
+  the forest bed, which removed every sample step above a quarter of full scale.
+- **Target license:** CC0/PD preferred; CC BY if Luftrum is used. It ships CC0.
+
 
 
 ### 5. Pure Noise (`pure-noise`)
