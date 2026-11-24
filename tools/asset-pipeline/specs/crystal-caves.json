@@ -6,7 +6,7 @@
   "description": {
     "en": "Still air and black water in a limestone chamber: water finding its way down, and now and then a warm tone ringing out of the rock."
   },
-  "version": "0.1.0",
+  "version": "0.2.0",
   "tags": [
     "cave",
     "crystal",
@@ -38,7 +38,7 @@
         "periodSec": 71.0
       },
       "csvNotes": "dark still cave room tone; 240 s loop at 15 s (0.03x seam, 0.810 head/tail corr)",
-      "notes": "The Cave of Filoktitis (radio aporee, PD Mark), 44.1 kHz/16-bit resampled by the pipeline. Spectrum is dark and even (120-300 Hz 39.7%, 300-1000 31.9%, 1-3k 18.3%, 3-8k 7.1%, under 120 Hz only 2.5%, centroid 955 Hz) with a 6.8 dB level spread, so no drift flattening is needed. Crest 31 dB means the +20 dB normalisation would push distant ticks into the ceiling, so the bed is limited at -14 dBFS. 240 s from 15 s: seam 0.03x p99.9, -0.2 dB across the wrap, head/tail spectral corr 0.810 - the longest window with a clean join, which matters because a static room repeats more audibly than rain. The wet-wall sheen from Grotte de la Gourge is a layer baked into this bed at -20 dB: the manifest allows only two beds, so a third texture is mixed at build time. Its own 66 s loop is tiled to the 240 s bed length (tiling a seamless loop keeps every copy boundary seamless) after a 300 Hz high-pass. gainDb -0.4 puts the two-bed mix back on the -23.0 LUFS target (the air layer alone lifts it to -22.6)",
+      "notes": "The Cave of Filoktitis (radio aporee, PD Mark), 44.1 kHz/16-bit resampled by the pipeline. Spectrum is dark and even (120-300 Hz 39.7%, 300-1000 31.9%, 1-3k 18.3%, 3-8k 7.1%, under 120 Hz only 2.5%, centroid 955 Hz) with a 6.8 dB level spread, so no drift flattening is needed. Crest 31 dB means the +20 dB normalisation would push distant ticks into the ceiling, so the bed is limited at -14 dBFS. 240 s from 15 s: seam 0.03x p99.9, -0.2 dB across the wrap, head/tail spectral corr 0.810 - the longest window with a clean join, which matters because a static room repeats more audibly than rain. The wet-wall sheen from Grotte de la Gourge is a layer baked into this bed at -20 dB: the manifest allows only two beds, so a third texture is mixed at build time. Its own 66 s loop is tiled to the 240 s bed length (tiling a seamless loop keeps every copy boundary seamless) after a 300 Hz high-pass. gainDb -0.4 puts the two-bed mix back on the -23.0 LUFS target (the air layer alone lifts it to -22.6). v0.2.0 only widens the drip interval to 8-25 s (one every ~16 s instead of ~9 s); the audio is unchanged",
       "credit": {
         "title": "The cave of Filoktitis (Limnos, Greece)",
         "author": "radio aporee",
@@ -105,8 +105,8 @@
         -12.0
       ],
       "maxVoices": 1,
-      "minIntervalSec": 4.0,
-      "maxIntervalSec": 16.0,
+      "minIntervalSec": 8.0,
+      "maxIntervalSec": 25.0,
       "pan": [
         -0.8,
         0.8
