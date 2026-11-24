@@ -188,8 +188,26 @@ pub fn unpack_archive(archive: &Path, dest: &Path) -> Result<ArchiveInfo, PackEr
 ///
 /// Extraction happens in a temporary directory inside `packs_dir`; the pack is
 /// renamed into place only after the archive validates. An existing pack with
-/// the same id is never overwritten.
+/// the same id is never overwritten — use [`install_archive_with`] with
+/// `replace = true` for a catalog update.
 pub fn install_archive(archive: &Path, packs_dir: &Path) -> Result<InstalledPack, PackError> {
+    install_archive_with(archive, packs_dir, false, |_| Ok(()))
+}
+
+/// Validate and install an archive, optionally replacing an installed pack.
+///
+/// `validate` runs against the staged (not yet published) directory, so audio
+/// validation can reject a pack before anything in the library is touched. When
+/// `replace` is true and a pack with the same id exists, the old directory is
+/// moved aside, the new one is renamed into place, and the old directory is
+/// dropped only after that succeeds; if the rename fails the old pack is
+/// restored.
+pub fn install_archive_with(
+    archive: &Path,
+    packs_dir: &Path,
+    replace: bool,
+    validate: impl FnOnce(&Path) -> Result<(), String>,
+) -> Result<InstalledPack, PackError> {
     fs::create_dir_all(packs_dir)?;
 
     // The temp directory keeps a failed or concurrent install out of the
@@ -197,17 +215,31 @@ pub fn install_archive(archive: &Path, packs_dir: &Path) -> Result<InstalledPack
     let temp = TempDir::new_in(packs_dir)?;
     let staging = temp.path().join("staging");
     let info = unpack_archive(archive, &staging)?;
+    validate(&staging).map_err(PackError::Validation)?;
 
     let destination = packs_dir.join(&info.manifest.id);
-    if destination.exists() {
-        return Err(PackError::Validation(format!(
-            "pack {:?} is already installed at {}",
-            info.manifest.id,
-            destination.display()
-        )));
+    let previous = if destination.exists() {
+        if !replace {
+            return Err(PackError::Validation(format!(
+                "pack {:?} is already installed at {}",
+                info.manifest.id,
+                destination.display()
+            )));
+        }
+        let backup = temp.path().join("previous");
+        fs::rename(&destination, &backup)?;
+        Some(backup)
+    } else {
+        None
+    };
+
+    if let Err(error) = fs::rename(&staging, &destination) {
+        if let Some(backup) = previous {
+            let _ = fs::rename(backup, &destination);
+        }
+        return Err(PackError::Io(error));
     }
 
-    fs::rename(&staging, &destination)?;
     Ok(InstalledPack {
         info,
         directory: destination,
@@ -708,6 +740,67 @@ mod tests {
             1,
             "the staging directory must not be left behind"
         );
+    }
+
+    #[test]
+    fn install_archive_with_replace_swaps_an_installed_pack() {
+        let first = tempfile::tempdir().unwrap();
+        make_pack(first.path());
+        let output = tempfile::tempdir().unwrap();
+        let first_archive = output.path().join("first.onirispack");
+        pack_dir(first.path(), &first_archive).unwrap();
+
+        let packs_dir = output.path().join("packs");
+        install_archive(&first_archive, &packs_dir).unwrap();
+
+        // A second archive for the same id with a different manifest.
+        let second = tempfile::tempdir().unwrap();
+        make_pack(second.path());
+        let mut value: serde_json::Value =
+            serde_json::from_str(&manifest_json("test-rain")).unwrap();
+        value["version"] = serde_json::json!("2.0.0");
+        std::fs::write(
+            second.path().join("manifest.json"),
+            serde_json::to_string_pretty(&value).unwrap(),
+        )
+        .unwrap();
+        let second_archive = output.path().join("second.onirispack");
+        pack_dir(second.path(), &second_archive).unwrap();
+
+        let installed = install_archive_with(&second_archive, &packs_dir, true, |_| Ok(())).unwrap();
+        assert_eq!(installed.info.manifest.version, "2.0.0");
+        let published = std::fs::read_to_string(packs_dir.join("test-rain/manifest.json")).unwrap();
+        assert!(published.contains("2.0.0"), "the new pack must be published");
+        assert_eq!(
+            std::fs::read_dir(&packs_dir).unwrap().count(),
+            1,
+            "the previous pack and the staging directory must not be left behind"
+        );
+    }
+
+    #[test]
+    fn install_archive_with_replace_keeps_the_old_pack_when_validation_fails() {
+        let first = tempfile::tempdir().unwrap();
+        make_pack(first.path());
+        let output = tempfile::tempdir().unwrap();
+        let first_archive = output.path().join("first.onirispack");
+        pack_dir(first.path(), &first_archive).unwrap();
+
+        let packs_dir = output.path().join("packs");
+        install_archive(&first_archive, &packs_dir).unwrap();
+        let before = std::fs::read(packs_dir.join("test-rain/manifest.json")).unwrap();
+
+        let second = tempfile::tempdir().unwrap();
+        make_pack(second.path());
+        let second_archive = output.path().join("second.onirispack");
+        pack_dir(second.path(), &second_archive).unwrap();
+
+        let error = install_archive_with(&second_archive, &packs_dir, true, |_| {
+            Err("invalid pack audio".to_string())
+        })
+        .unwrap_err();
+        assert!(error.to_string().contains("invalid pack audio"));
+        assert_eq!(std::fs::read(packs_dir.join("test-rain/manifest.json")).unwrap(), before);
     }
 
     #[test]

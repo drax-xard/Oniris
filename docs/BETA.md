@@ -1,7 +1,15 @@
-# Oniris 1.0.0-beta8 — tester guide
+# Oniris 1.0.0-beta9 — tester guide
 
 This is an internal, release-mode Android beta for real-device testing. It is
 not a Play Store build.
+
+## What changed in beta9
+
+- **Pack updates install.** A downloaded pack update now replaces the installed
+  copy; in beta8 it downloaded, reported success, and left the old version in
+  place (the installer refused to overwrite). The new pack is validated before
+  anything in the library is touched, so a bad archive never replaces a working
+  one, and a version already installed is not offered again.
 
 ## What changed in beta8
 

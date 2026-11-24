@@ -176,6 +176,7 @@ fun OnirisApp(
 
     fun downloadPack(entry: CatalogEntry) {
         if (downloadingId != null) return
+        if (packs.firstOrNull { it.id == entry.id }?.version == entry.version) return
         scope.launch {
             downloadingId = entry.id
             downloadProgress = 0f

@@ -11,7 +11,7 @@ use jni::objects::{JByteBuffer, JObject, JString};
 use jni::sys::{jboolean, jint, jlong, jstring};
 use jni::JNIEnv;
 use oniris_core::{Engine, MixSpec};
-use oniris_pack::install_archive;
+use oniris_pack::install_archive_with;
 
 #[no_mangle]
 pub extern "system" fn Java_dev_oniris_data_NativePack_nativeInstallArchive(
@@ -19,6 +19,7 @@ pub extern "system" fn Java_dev_oniris_data_NativePack_nativeInstallArchive(
     _this: JObject,
     archive_path: JString,
     packs_dir: JString,
+    replace: jboolean,
 ) -> jstring {
     let archive: String = match env.get_string(&archive_path) {
         Ok(value) => value.into(),
@@ -29,19 +30,25 @@ pub extern "system" fn Java_dev_oniris_data_NativePack_nativeInstallArchive(
         Err(error) => return fail_string(&mut env, format!("invalid packs directory: {error}")),
     };
 
-    let installed = match install_archive(Path::new(&archive), Path::new(&packs_dir)) {
+    // The archive checks the manifest and file presence; decoding with a real
+    // engine also validates loop bounds, codecs, and the memory budget. This
+    // runs against the staged directory, before anything is published, so a bad
+    // pack never replaces a working one.
+    let installed = match install_archive_with(
+        Path::new(&archive),
+        Path::new(&packs_dir),
+        replace != 0,
+        |staged| {
+            let mut engine = Engine::new(48_000);
+            engine
+                .load_pack(staged)
+                .map(|_| ())
+                .map_err(|error| format!("invalid pack audio: {error}"))
+        },
+    ) {
         Ok(value) => value,
         Err(error) => return fail_string(&mut env, error.to_string()),
     };
-
-    // The archive checks the manifest and file presence; decoding with a real
-    // engine also validates loop bounds, codecs, and the memory budget. Remove
-    // the published directory if the audio is unusable.
-    let mut engine = Engine::new(48_000);
-    if let Err(error) = engine.load_pack(&installed.directory) {
-        let _ = std::fs::remove_dir_all(&installed.directory);
-        return fail_string(&mut env, format!("invalid pack audio: {error}"));
-    }
 
     match env.new_string(&installed.info.manifest.id) {
         Ok(id) => id.into_raw(),

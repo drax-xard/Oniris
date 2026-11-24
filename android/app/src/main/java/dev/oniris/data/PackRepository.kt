@@ -79,14 +79,16 @@ class PackRepository(context: Context) {
      */
     suspend fun installDownloaded(archive: File): PackInfo = withContext(Dispatchers.IO) {
         try {
-            installFile(archive)
+            // A catalog download replaces an installed pack of the same id: the
+            // caller has already matched the digest to the published catalog.
+            installFile(archive, replace = true)
         } finally {
             archive.delete()
         }
     }
 
-    private fun installFile(archive: File): PackInfo {
-        val id = NativePack.installArchive(archive.absolutePath, packsDir.absolutePath)
+    private fun installFile(archive: File, replace: Boolean = false): PackInfo {
+        val id = NativePack.installArchive(archive.absolutePath, packsDir.absolutePath, replace)
             ?: throw IOException(
                 appContext.getString(R.string.error_importer_unavailable),
             )

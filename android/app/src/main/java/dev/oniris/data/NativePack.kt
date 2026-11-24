@@ -23,10 +23,19 @@ object NativePack {
      * Throws [RuntimeException] when the archive is invalid or the pack is
      * already installed.
      */
-    fun installArchive(archivePath: String, packsDir: String): String? {
+    /**
+     * Validate and install an archive. [replace] is only true for a catalog
+     * update, where the caller has already checked the digest and the version:
+     * it lets the new pack land on top of the installed one.
+     */
+    fun installArchive(archivePath: String, packsDir: String, replace: Boolean = false): String? {
         if (!loaded) return null
-        return nativeInstallArchive(archivePath, packsDir)
+        return nativeInstallArchive(archivePath, packsDir, replace)
     }
 
-    private external fun nativeInstallArchive(archivePath: String, packsDir: String): String?
+    private external fun nativeInstallArchive(
+        archivePath: String,
+        packsDir: String,
+        replace: Boolean,
+    ): String?
 }
