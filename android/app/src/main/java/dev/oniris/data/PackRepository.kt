@@ -16,6 +16,7 @@ import java.util.UUID
 data class PackInfo(
     val id: String,
     val name: String,
+    val version: String = "",
     val description: String,
     val tags: List<String>,
     val bedCount: Int,
@@ -65,17 +66,34 @@ class PackRepository(context: Context) {
         val archive = File(appContext.cacheDir, "import-${UUID.randomUUID()}.onirispack")
         try {
             copyToCache(uri, archive)
-            val id = NativePack.installArchive(archive.absolutePath, packsDir.absolutePath)
-                ?: throw IOException(
-                    appContext.getString(R.string.error_importer_unavailable),
-                )
-            readPack(File(packsDir, id))
-                ?: throw IOException(
-                    appContext.getString(R.string.error_pack_unreadable),
-                )
+            installFile(archive)
         } finally {
             archive.delete()
         }
+    }
+
+    /**
+     * Install an archive that was downloaded and checksum-verified against the
+     * pack catalog. The cache copy is removed either way; a failed install
+     * leaves the existing library untouched.
+     */
+    suspend fun installDownloaded(archive: File): PackInfo = withContext(Dispatchers.IO) {
+        try {
+            installFile(archive)
+        } finally {
+            archive.delete()
+        }
+    }
+
+    private fun installFile(archive: File): PackInfo {
+        val id = NativePack.installArchive(archive.absolutePath, packsDir.absolutePath)
+            ?: throw IOException(
+                appContext.getString(R.string.error_importer_unavailable),
+            )
+        return readPack(File(packsDir, id))
+            ?: throw IOException(
+                appContext.getString(R.string.error_pack_unreadable),
+            )
     }
 
     private fun copyToCache(uri: Uri, destination: File) {
@@ -208,6 +226,7 @@ class PackRepository(context: Context) {
             PackInfo(
                 id = id,
                 name = names?.optString("en")?.takeIf { it.isNotBlank() } ?: id,
+                version = json.optString("version").trim(),
                 description = descriptions?.optString("en").orEmpty(),
                 tags = tags.filter { it.isNotBlank() },
                 bedCount = json.optJSONArray("beds")?.length() ?: 0,

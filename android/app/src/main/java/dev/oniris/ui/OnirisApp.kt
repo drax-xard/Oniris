@@ -57,8 +57,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.oniris.R
+import dev.oniris.data.CatalogEntry
 import dev.oniris.data.MixPreset
 import dev.oniris.data.NativePack
+import dev.oniris.data.PackCatalog
 import dev.oniris.data.PackInfo
 import dev.oniris.data.PackRepository
 import dev.oniris.data.SettingsStore
@@ -144,6 +146,53 @@ fun OnirisApp(
                 )
             } finally {
                 importing = false
+            }
+        }
+    }
+
+    val catalog = remember { PackCatalog(context) }
+    var catalogEntries by remember { mutableStateOf<List<CatalogEntry>>(emptyList()) }
+    var catalogChecking by remember { mutableStateOf(false) }
+    var catalogError by remember { mutableStateOf<String?>(null) }
+    var downloadingId by remember { mutableStateOf<String?>(null) }
+    var downloadProgress by remember { mutableStateOf(0f) }
+
+    fun checkCatalog(forceRefresh: Boolean) {
+        if (catalogChecking) return
+        scope.launch {
+            catalogChecking = true
+            catalogError = null
+            try {
+                catalogEntries = catalog.entries(forceRefresh = forceRefresh)
+            } catch (error: Exception) {
+                catalogError = error.message ?: context.getString(R.string.error_catalog_unavailable)
+            } finally {
+                catalogChecking = false
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) { checkCatalog(forceRefresh = false) }
+
+    fun downloadPack(entry: CatalogEntry) {
+        if (downloadingId != null) return
+        scope.launch {
+            downloadingId = entry.id
+            downloadProgress = 0f
+            try {
+                val archive = catalog.download(entry) { fraction -> downloadProgress = fraction }
+                val pack = repository.installDownloaded(archive)
+                snackbarHostState.showSnackbar(
+                    context.getString(R.string.message_imported, pack.name),
+                )
+                refreshToken += 1
+            } catch (error: Exception) {
+                snackbarHostState.showSnackbar(
+                    error.message ?: context.getString(R.string.message_import_failed),
+                )
+            } finally {
+                downloadingId = null
+                downloadProgress = 0f
             }
         }
     }
@@ -311,6 +360,13 @@ fun OnirisApp(
                 proceduralOnly = proceduralOnly,
                 includedPackIds = activeSelectedIds,
                 previewingId = previewingId,
+                catalog = catalogEntries,
+                catalogChecking = catalogChecking,
+                catalogError = catalogError,
+                downloadingId = downloadingId,
+                downloadProgress = downloadProgress,
+                onCheckCatalog = { checkCatalog(forceRefresh = true) },
+                onDownload = { entry -> downloadPack(entry) },
                 onImport = { importLauncher.launch(IMPORT_MIME_TYPES) },
                 onRefresh = { refreshToken += 1 },
                 onProceduralOnlyChange = { enabled ->

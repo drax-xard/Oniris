@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -23,7 +24,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import java.util.Locale
 import dev.oniris.R
+import dev.oniris.data.CatalogEntry
 import dev.oniris.data.MixPreset
 import dev.oniris.data.PackInfo
 
@@ -194,6 +197,117 @@ fun PackRow(
                         ),
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * A catalog row: the pack's identity, what is installed, and a download button.
+ * Shows [progress] while a download is running and never offers a second
+ * download while one is in flight.
+ */
+@Composable
+fun CatalogRow(
+    entry: CatalogEntry,
+    installedVersion: String?,
+    downloading: Boolean,
+    progress: Float,
+    onDownload: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val separator = stringResource(R.string.separator)
+    val tagSeparator = stringResource(R.string.tag_separator)
+    val downloadDescription = stringResource(R.string.catalog_download_content_description, entry.name)
+    val sizeMegabytes = String.format(Locale.getDefault(), "%.1f", entry.sizeBytes / (1024.0 * 1024.0))
+    val sizeLabel = stringResource(R.string.catalog_size_mb, sizeMegabytes)
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(text = entry.name, style = MaterialTheme.typography.titleMedium)
+                if (entry.description.isNotBlank()) {
+                    Text(
+                        text = entry.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                val details = buildList {
+                    add(
+                        pluralStringResource(
+                            R.plurals.pack_bed_count,
+                            entry.bedCount,
+                            entry.bedCount,
+                        ),
+                    )
+                    add(
+                        pluralStringResource(
+                            R.plurals.pack_event_count,
+                            entry.eventCount,
+                            entry.eventCount,
+                        ),
+                    )
+                    if (entry.tags.isNotEmpty()) add(entry.tags.take(3).joinToString(tagSeparator))
+                }.joinToString(separator)
+                Text(
+                    text = stringResource(
+                        R.string.catalog_details,
+                        entry.version,
+                        entry.license,
+                        sizeLabel,
+                        details,
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                val status = when {
+                    installedVersion == null -> null
+                    installedVersion == entry.version ->
+                        stringResource(R.string.catalog_installed, installedVersion)
+                    else -> stringResource(R.string.catalog_update, installedVersion, entry.version)
+                }
+                if (status != null) {
+                    Text(
+                        text = status,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                if (downloading) {
+                    Spacer(Modifier.height(6.dp))
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            TextButton(
+                onClick = onDownload,
+                enabled = !downloading,
+                modifier = Modifier.semantics { contentDescription = downloadDescription },
+            ) {
+                Text(
+                    if (downloading) {
+                        stringResource(
+                            R.string.catalog_downloading,
+                            (progress * 100).toInt(),
+                        )
+                    } else {
+                        stringResource(R.string.catalog_download)
+                    },
+                )
             }
         }
     }

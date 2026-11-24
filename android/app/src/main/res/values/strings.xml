@@ -175,4 +175,21 @@
     <string name="quick_tile_label">Oniris</string>
     <string name="quick_tile_playing">Oniris is playing. Tap to pause.</string>
     <string name="quick_tile_idle">Oniris is paused. Tap to play the last mix.</string>
+<!-- Pack catalog: recorded packs offered for download in the library -->
+    <string name="catalog_section_title">Available to download</string>
+    <string name="catalog_section_description">Downloaded from the project\'s releases and checked against a published SHA-256.</string>
+    <string name="catalog_check">Check for packs</string>
+    <string name="catalog_checking">Checking…</string>
+    <string name="catalog_check_failed">Could not check for packs. Import an .onirispack manually if you already have one.</string>
+    <string name="catalog_installed">Installed v%1$s</string>
+    <string name="catalog_update">Update v%1$s → v%2$s</string>
+    <string name="catalog_details">v%1$s · %2$s · %3$s · %4$s</string>
+    <string name="catalog_size_mb">%1$s MB</string>
+    <string name="catalog_download">Download</string>
+    <string name="catalog_downloading">Downloading %1$d%%</string>
+    <string name="catalog_download_content_description">Download %1$s</string>
+    <string name="catalog_empty">All available packs are installed.</string>
+    <string name="error_catalog_unavailable">Could not reach the pack catalog</string>
+    <string name="error_catalog_checksum">%1$s failed its checksum; nothing was installed</string>
+    <string name="error_catalog_download">Could not save %1$s</string>
 </resources>

@@ -16,6 +16,10 @@ not a Play Store build.
   roar plus resonant crackles) with no sub-20 Hz waste, thunder carries
   midrange so it survives a phone speaker, and every bed is normalised to
   -23 LUFS.
+- **Recorded packs download in the app.** The library now lists what is available
+  with its version, licence and size, and installs it after checking the archive
+  against the SHA-256 published in the catalog. The first recorded packs are
+  Rainy Night, Seaside, and Forest Deep; **Import** still works for a local file.
 
 ## What is included
 
@@ -28,7 +32,8 @@ not a Play Store build.
   playback, audio focus, headphone-disconnect pause, and lock-screen controls.
 - Per-pack attributions in a **Licenses & credits** dialog instead of a long
   list on the main screen.
-- No accounts, ads, analytics, or network requirement for playback.
+- No accounts, ads, or analytics. Playback is fully offline; the only network
+  call is the optional pack catalog in Library, which lists downloadable packs.
 
 ## Requirements
 
@@ -116,27 +121,38 @@ Then use **Import** in the app and choose the file from Downloads.
 ## Recorded packs (not bundled)
 
 Field-recorded packs are built from masters that stay out of the repository, so
-they ship as GitHub release assets instead of bundled assets. Download the
-`.onirispack` attached to the pack's release, then import it the usual way
-(**Library → Import**). Each release also carries `SHA256SUMS`.
+they are not bundled in the APK. Two ways to get them:
+
+- **In the app (beta8+):** open **Library**, scroll to **Available to download**,
+  and tap **Download** on a pack. The catalog is `packs/index.json` in the
+  repository; the archive is checked against its published SHA-256 before the
+  importer touches it, so a corrupted or tampered download installs nothing.
+  A pack already installed shows its version, or an update when the catalog has
+  a newer one.
+- **By hand:** download the `.onirispack` from the pack's release page and use
+  **Library → Import**. Each release carries the archive plus a `.sha256` sidecar.
 
 | Pack | Version | Release tag | Contents | License |
 |---|---|---|---|---|
+| Rainy Night | 0.1.0 | `rainy-night-v0.1.0` | rain bed + distant thunder | CC0 |
 | Seaside | 0.2.0 | `seaside-v0.2.0` | surf bed + faint breeze bed | CC0 |
 | Forest Deep | 0.1.0 | `forest-deep-v0.1.0` | forest bed + rustle bed, distant spotted owl | CC0 |
 
 Releases live under `https://github.com/<owner>/Oniris/releases`, one per pack
-version. To publish a new one from a checkout:
+version. Totals: about 4.7 MB across the three packs, 1.9 MB for the largest.
+
+To publish a new pack version from a checkout:
 
 ```bash
 scripts/release-pack.sh seaside --dry-run   # build + write notes, publish nothing
 scripts/release-pack.sh seaside             # create the release and upload assets
+scripts/update-pack-index.py                # refresh packs/index.json, then commit it
 ```
 
-The script refuses to tag a commit that is not on `origin/main`, and it refuses
-to reuse an existing tag: bump `version` in the pack's spec instead, because
-testers and the SHA-256 log need to tell two builds apart.
-
+The release script refuses to tag a commit that is not on `origin/main`, and it
+refuses to reuse an existing tag: bump `version` in the pack's spec instead,
+because testers and the SHA-256 log need to tell two builds apart. The catalog
+entry must be committed after the release so the app can see it.
 
 ## Suggested test pass
 

@@ -24,7 +24,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import dev.oniris.R
+import dev.oniris.data.CatalogEntry
 import dev.oniris.data.PackInfo
+import dev.oniris.ui.components.CatalogRow
 import dev.oniris.ui.components.Notice
 import dev.oniris.ui.components.PackRow
 
@@ -42,11 +44,18 @@ fun LibraryScreen(
     proceduralOnly: Boolean,
     includedPackIds: Set<String>,
     previewingId: String?,
+    catalog: List<CatalogEntry>,
+    catalogChecking: Boolean,
+    catalogError: String?,
+    downloadingId: String?,
+    downloadProgress: Float,
     onImport: () -> Unit,
     onRefresh: () -> Unit,
     onProceduralOnlyChange: (Boolean) -> Unit,
     onPreview: (PackInfo) -> Unit,
     onIncludedChange: (PackInfo, Boolean) -> Unit,
+    onCheckCatalog: () -> Unit,
+    onDownload: (CatalogEntry) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Semantics descriptions are plain lambdas, so resolve them here.
@@ -134,6 +143,62 @@ fun LibraryScreen(
                         previewing = previewingId == pack.id,
                         onPreview = { onPreview(pack) },
                         onSelectedChange = { checked -> onIncludedChange(pack, checked) },
+                    )
+                    Spacer(Modifier.height(10.dp))
+                }
+            }
+        }
+        if (!proceduralOnly) {
+            Spacer(Modifier.height(24.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.catalog_section_title),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        text = stringResource(R.string.catalog_section_description),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                TextButton(
+                    onClick = onCheckCatalog,
+                    enabled = !catalogChecking && downloadingId == null,
+                ) {
+                    Text(
+                        stringResource(
+                            if (catalogChecking) R.string.catalog_checking else R.string.catalog_check,
+                        ),
+                    )
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            when {
+                catalogError != null && catalog.isEmpty() ->
+                    Notice(stringResource(R.string.catalog_check_failed))
+
+                catalog.isEmpty() && catalogChecking -> Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp),
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    CircularProgressIndicator()
+                }
+
+                catalog.isEmpty() -> Notice(stringResource(R.string.catalog_empty))
+
+                else -> catalog.forEach { entry ->
+                    CatalogRow(
+                        entry = entry,
+                        installedVersion = packs.firstOrNull { it.id == entry.id }?.version,
+                        downloading = downloadingId == entry.id,
+                        progress = if (downloadingId == entry.id) downloadProgress else 0f,
+                        onDownload = { onDownload(entry) },
                     )
                     Spacer(Modifier.height(10.dp))
                 }
