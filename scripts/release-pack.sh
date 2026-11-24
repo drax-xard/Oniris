@@ -187,10 +187,14 @@ if [[ "$head_sha" != "$origin_sha" ]]; then
   } >> "$out/release-notes.md"
 fi
 
-if api "https://api.github.com/repos/$repo/releases/tags/$tag" | grep -q '"id"'; then
+existing="$(mktemp)"
+api -o "$existing" -w '%{http_code}' "https://api.github.com/repos/$repo/releases/tags/$tag" >/dev/null || true
+if grep -q '"id"' "$existing"; then
+  rm -f "$existing"
   echo "release $tag already exists; bump the pack version in $spec" >&2
   exit 1
 fi
+rm -f "$existing"
 
 body=$("$PYTHON" -c 'import json,sys; print(json.dumps(open(sys.argv[1]).read()))' "$out/release-notes.md")
 payload=$("$PYTHON" - "$tag" "$body" "$prerelease" <<'PY'
@@ -220,10 +224,16 @@ upload "$out/$asset.sha256" "$asset.sha256"
 
 # ---------------------------------------------------------------- verify
 echo "== verifying upload"
-api "https://api.github.com/repos/$repo/releases/tags/$tag" | "$PYTHON" - "$size_want" "$sha_want" "$asset" <<'PY'
+# Read the release into a file: piping the response into a Python heredoc does
+# not work, because the heredoc becomes the script's stdin and the writer gets
+# SIGPIPE, which looks like an empty JSON response.
+release_json="$(mktemp)"
+trap 'rm -f "$release_json"' EXIT
+api -o "$release_json" "https://api.github.com/repos/$repo/releases/tags/$tag"
+"$PYTHON" - "$release_json" "$size_want" "$sha_want" "$asset" <<'PY'
 import json, sys
-size_want, sha_want, asset = int(sys.argv[1]), sys.argv[2], sys.argv[3]
-release = json.load(sys.stdin)
+size_want, sha_want, asset = int(sys.argv[2]), sys.argv[3], sys.argv[4]
+release = json.load(open(sys.argv[1]))
 assets = {a["name"]: a for a in release.get("assets", [])}
 ok = True
 if asset not in assets:
