@@ -113,6 +113,31 @@ adb push /tmp/enchanted-forest.onirispack /sdcard/Download/
 
 Then use **Import** in the app and choose the file from Downloads.
 
+## Recorded packs (not bundled)
+
+Field-recorded packs are built from masters that stay out of the repository, so
+they ship as GitHub release assets instead of bundled assets. Download the
+`.onirispack` attached to the pack's release, then import it the usual way
+(**Library → Import**). Each release also carries `SHA256SUMS`.
+
+| Pack | Version | Release tag | Contents | License |
+|---|---|---|---|---|
+| Seaside | 0.2.0 | `seaside-v0.2.0` | surf bed + faint breeze bed | CC0 |
+| Forest Deep | 0.1.0 | `forest-deep-v0.1.0` | forest bed + rustle bed, distant spotted owl | CC0 |
+
+Releases live under `https://github.com/<owner>/Oniris/releases`, one per pack
+version. To publish a new one from a checkout:
+
+```bash
+scripts/release-pack.sh seaside --dry-run   # build + write notes, publish nothing
+scripts/release-pack.sh seaside             # create the release and upload assets
+```
+
+The script refuses to tag a commit that is not on `origin/main`, and it refuses
+to reuse an existing tag: bump `version` in the pack's spec instead, because
+testers and the SHA-256 log need to tell two builds apart.
+
+
 ## Suggested test pass
 
 - Play each built-in preset for at least 10 minutes.
