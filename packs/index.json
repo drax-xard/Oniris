@@ -2,6 +2,31 @@
   "schemaVersion": 1,
   "packs": [
     {
+      "id": "crystal-caves",
+      "name": {
+        "en": "Crystal Caves"
+      },
+      "description": {
+        "en": "Still air and black water in a limestone chamber: water finding its way down, and now and then a warm tone ringing out of the rock."
+      },
+      "version": "0.1.0",
+      "license": "CC0-1.0",
+      "credits": "Kinoton (CC0-1.0), Sclolex (CC0-1.0), bassimat (CC0-1.0), radio aporee (Public Domain)",
+      "tags": [
+        "cave",
+        "crystal",
+        "water",
+        "drips",
+        "night"
+      ],
+      "beds": 2,
+      "events": 2,
+      "sizeBytes": 4520948,
+      "sha256": "0ff443e630becc11d450f5f493c43f6ecbdbf522c9038892e78b205380b7fdd8",
+      "url": "https://github.com/drax-xard/Oniris/releases/download/crystal-caves-v0.1.0/crystal-caves-v0.1.0.onirispack",
+      "minAppVersionCode": 1
+    },
+    {
       "id": "forest-deep",
       "name": {
         "en": "Forest Deep"

@@ -364,34 +364,66 @@ def ingest_bed(bed, work, pack_dir, target_lufs, true_peak):
     if not source.exists():
         raise SystemExit(f"bed {bed['id']}: source missing: {source}")
 
-    trim = bed.get("trim")
-    trim = (trim["startSec"], trim["startSec"] + trim["lengthSec"]) if trim else None
-    filters = cleanup_filters(bed.get("highpassHz", 20), bed.get("humHz"), bed.get("lowpassHz"),
-                              bed.get("eq"))
-    audio = decode(source, 2, trim=trim, filters=filters)
+    def prepare(spec, channels=2, default_highpass=20):
+        """Decode, clean, flatten and loop one recorded layer."""
+        path = Path(os.path.expanduser(spec["source"]))
+        if not path.exists():
+            raise SystemExit(f"bed {bed['id']}: layer source missing: {path}")
+        trim = spec.get("trim")
+        trim = (trim["startSec"], trim["startSec"] + trim["lengthSec"]) if trim else None
+        filters = cleanup_filters(
+            spec.get("highpassHz", default_highpass), spec.get("humHz"),
+            spec.get("lowpassHz"), spec.get("eq"))
+        audio = decode(path, channels, trim=trim, filters=filters)
+        dc = [round(float(channel.mean()), 6) for channel in audio.T]
+        audio = audio - audio.mean(axis=0)  # residual DC after the high-pass
+        drift_info = None
+        drift = spec.get("flattenDrift")
+        if drift:
+            options = drift if isinstance(drift, dict) else {}
+            audio, drift_info = flatten_drift(
+                audio, options.get("windowSec", 5.0), options.get("smoothSec", 20.0))
+        return audio, dc, drift_info, path
 
-    dc = [round(float(channel.mean()), 6) for channel in audio.T]
-    audio = audio - audio.mean(axis=0)  # residual DC after the high-pass
-
-    drift_info = None
-    drift = bed.get("flattenDrift")
-    if drift:
-        options = drift if isinstance(drift, dict) else {}
-        audio, drift_info = flatten_drift(
-            audio,
-            options.get("windowSec", 5.0),
-            options.get("smoothSec", 20.0),
-        )
+    audio, dc, drift_info, source = prepare(bed)
+    if drift_info:
         print(f"   drift {drift_info['drift_db']} dB flattened by "
               f"{drift_info['correction_db'][0]}..{drift_info['correction_db'][1]} dB", flush=True)
-
-    loop_spec = bed["loop"]
     looped, loop_info = loop_region(
         audio,
-        loop_spec["lengthSec"],
-        loop_spec.get("crossfadeSec", 2.0),
-        loop_spec.get("startSec", 0.0),
+        bed["loop"]["lengthSec"],
+        bed["loop"].get("crossfadeSec", 2.0),
+        bed["loop"].get("startSec", 0.0),
     )
+
+    # The manifest format allows at most two beds, so a third texture has to be
+    # baked in rather than added. Each extra layer is looped on its own (seam
+    # included) and tiled onto the bed's length: tiling a seamless loop keeps
+    # every copy boundary seamless by construction.
+    layer_notes = []
+    for layer in bed.get("layers", []):
+        layer_source, layer_dc, layer_drift, layer_path = prepare(
+            layer, default_highpass=layer.get("highpassHz", 20))
+        layer_spec = layer["loop"]
+        layer_audio, _ = loop_region(
+            layer_source, layer_spec["lengthSec"], layer_spec.get("crossfadeSec", 2.0),
+            layer_spec.get("startSec", 0.0))
+        reps = -(-len(looped) // max(len(layer_audio), 1))
+        tiled = np.tile(layer_audio, (reps, 1))[:len(looped)]
+        gain = 10 ** (layer.get("gainDb", 0.0) / 20)
+        looped = looped + tiled * gain
+        layer_notes.append({
+            "source": str(layer_path),
+            "loop_sec": round(len(layer_audio) / SAMPLE_RATE, 2),
+            "tiles": reps,
+            "gain_db": layer.get("gainDb", 0.0),
+            "dc_offset_before": layer_dc,
+            "drift": layer_drift,
+            "credit": layer["credit"],
+        })
+        print(f"   layer {Path(layer_path).name}: {len(layer_audio) / SAMPLE_RATE:.1f} s loop "
+              f"x{reps} at {layer.get('gainDb', 0.0):+.1f} dB", flush=True)
+
 
     seam_samples = float(abs(looped[0, 0] - looped[-1, 0]))
     step = max(float(np.percentile(np.abs(np.diff(looped[:, 0])), 99.9)), 1e-9)
@@ -433,6 +465,7 @@ def ingest_bed(bed, work, pack_dir, target_lufs, true_peak):
         **loop_info,
         "dc_offset_before": dc,
         "drift": drift_info,
+        "layers": layer_notes,
         "seam_delta": round(seam_samples, 6),
         "seam_vs_p99": round(seam_samples / step, 2),
         "seam_spectral": cosine_seam(looped),
@@ -618,6 +651,17 @@ def write_manifest_and_docs(spec, pack_dir, beds, events):
             "title": bed["credit"]["title"],
         })
         doc_lines += credit_lines(f"audio/{bed['id']}.opus  ({bed['loop_sec']} s loop)", bed["credit"])
+        for layer in bed["layers"]:
+            credits.append({
+                "asset": f"audio/{bed['id']}.opus",
+                "author": layer["credit"]["author"],
+                "license": layer["credit"]["license"],
+                "modified": True,
+                "source": layer["credit"]["url"],
+                "title": f"{layer['credit']['title']} (layer)",
+            })
+            doc_lines += credit_lines(
+                f"audio/{bed['id']}.opus  [layer at {layer['gain_db']:+.0f} dB]", layer["credit"])
 
     manifest_events = []
     for event, files in events:

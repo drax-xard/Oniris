@@ -305,7 +305,47 @@ after auditioning 3–5 candidates per role.
 
 
 
-### 5. Pure Noise (`pure-noise`)
+### 5. Crystal Caves (`crystal-caves`) — **shipped**
+
+A still limestone chamber: dark air, water finding its way down, and a rare warm
+tone. Sleep-first, so the "crystal" is a *low, rare bell*, never sparkle.
+
+- **Bed `cavern`:** radio aporee `aporee_41523_47354` "The cave of Filoktitis"
+  (Limnos, Greece) — **Public Domain Mark**, 44.1 kHz/16-bit, 5:18. Dark and even
+  (120–300 Hz 39.7 %, 300–1k 31.9 %, 1–3k 18.3 %, 3–8k 7.1 %, under 120 Hz 2.5 %,
+  centroid 955 Hz, 6.8 dB level spread). 240 s loop from 15 s: 0.03× seam, −0.2 dB
+  wrap, head/tail corr 0.81. Crest 31 dB, so a −14 dBFS limiter runs before the
+  final normalise.
+- **Layer baked into `cavern`:** aporee `aporee_64271_74156` "AMB Cave entrance
+  Grotte de la Gourge water drop" (PD Mark, 48 kHz/24-bit) at −20 dB, high-passed
+  at 300 Hz — a wet-wall sheen (63 % of its energy at 3–8 kHz). **The manifest
+  allows at most two beds**, so `ingest.py` supports `layers`: each layer is
+  looped with its own seam and tiled onto the bed's length, then mixed before
+  normalisation.
+- **Bed `air`:** Freesound `Kinoton` 815100 "Low Wind Howling Indoor" (CC0,
+  48 kHz/24-bit, 3:18) — everything below 1 kHz, low-passed at 250 Hz and mixed
+  11 dB down as the cave's draught.
+- **Event `drip`:** Freesound `Sclolex` 177958 "Water Dripping in Cave" (CC0,
+  48 kHz/16-bit) — three cuts (single, isolated, double) at 16.0 s / 42.0 s /
+  34.7 s, −18…−12 dB, every 4–16 s, wide pan.
+- **Event `bell`:** Freesound `bassimat` 858114 "Crystal Bell — Bb3" (CC0,
+  48 kHz/24-bit) — the strike trimmed to 7 s (the second strike at 8 s is cut),
+  −14…−10 dB, every 2–5 min. 83 % of its energy sits at 120–300 Hz around a
+  233 Hz fundamental, which is why it reads as warm rather than glassy.
+- **Status:** v0.1.0, mix −22.9 LUFS / −9.2 dBTP, 67 MB decoded, ships as
+  `dist/crystal-caves.onirispack` (4.5 MB), sha256 `0ff443e6…`, license CC0.
+
+**Rejected while researching this theme** (recorded so the search is not
+repeated): aporee `56956_65144` ice cave (PD, 10 min FLAC — 92 % of energy above
+3 kHz, glitter not a room); aporee `62602_72034` "Breath in the Poseidon cave"
+(PD, 6:40 FLAC — a sea cave with 2–4 s wave swells); Freesound 570694 (54 % below
+60 Hz, looks processed); Freesound 725340 (WAV 96 kHz/24 but 90 % below 60 Hz,
+a wind blast at the mic); Freesound 735353 "Ice – Cristal cave" (77.7 % at
+3–8 kHz); Freesound 804853 (mono AAC, 60 s); Freesound 740041 (8 min but zero
+energy above 3 kHz, 21 dB spread); NPS Mammoth Cave waterfall (public domain, but
+dense 100 Hz–9 kHz water — belongs to a rain or river theme).
+
+### 6. Pure Noise (`pure-noise`)
 
 - **Bed:** generated pink/brown noise, gently low-passed, with very slow gain
   LFO. No external source.

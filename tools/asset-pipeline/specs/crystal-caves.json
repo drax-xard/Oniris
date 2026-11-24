@@ -1,0 +1,214 @@
+{
+  "id": "crystal-caves",
+  "name": {
+    "en": "Crystal Caves"
+  },
+  "description": {
+    "en": "Still air and black water in a limestone chamber: water finding its way down, and now and then a warm tone ringing out of the rock."
+  },
+  "version": "0.1.0",
+  "tags": [
+    "cave",
+    "crystal",
+    "water",
+    "drips",
+    "night"
+  ],
+  "loudnessLufs": -23.0,
+  "truePeakDbtp": -1.5,
+  "beds": [
+    {
+      "id": "cavern",
+      "source": "~/oniris-sources/masters/aporee_41523_47354.wav",
+      "loop": {
+        "startSec": 15.0,
+        "lengthSec": 240.0,
+        "crossfadeSec": 3.0
+      },
+      "highpassHz": 35,
+      "limiter": {
+        "peakDb": -14.0,
+        "releaseMs": 40.0
+      },
+      "gainDb": -0.4,
+      "pan": 0.0,
+      "lfo": {
+        "target": "gain",
+        "depth": 0.3,
+        "periodSec": 71.0
+      },
+      "csvNotes": "dark still cave room tone; 240 s loop at 15 s (0.03x seam, 0.810 head/tail corr)",
+      "notes": "The Cave of Filoktitis (radio aporee, PD Mark), 44.1 kHz/16-bit resampled by the pipeline. Spectrum is dark and even (120-300 Hz 39.7%, 300-1000 31.9%, 1-3k 18.3%, 3-8k 7.1%, under 120 Hz only 2.5%, centroid 955 Hz) with a 6.8 dB level spread, so no drift flattening is needed. Crest 31 dB means the +20 dB normalisation would push distant ticks into the ceiling, so the bed is limited at -14 dBFS. 240 s from 15 s: seam 0.03x p99.9, -0.2 dB across the wrap, head/tail spectral corr 0.810 - the longest window with a clean join, which matters because a static room repeats more audibly than rain. The wet-wall sheen from Grotte de la Gourge is a layer baked into this bed at -20 dB: the manifest allows only two beds, so a third texture is mixed at build time. Its own 66 s loop is tiled to the 240 s bed length (tiling a seamless loop keeps every copy boundary seamless) after a 300 Hz high-pass. gainDb -0.4 puts the two-bed mix back on the -23.0 LUFS target (the air layer alone lifts it to -22.6)",
+      "credit": {
+        "title": "The cave of Filoktitis (Limnos, Greece)",
+        "author": "radio aporee",
+        "license": "Public Domain",
+        "url": "https://archive.org/details/aporee_41523_47354",
+        "downloadDate": "2026-11-24",
+        "modified": "resampled from 44.1 kHz/16-bit, 240 s loop with 3 s equal-power crossfade, DC/rumble high-pass at 35 Hz, -14 dBFS transient limiting, normalized to -23 LUFS"
+      },
+      "layers": [
+        {
+          "source": "~/oniris-sources/masters/aporee_64271_74156.wav",
+          "loop": {
+            "startSec": 0.0,
+            "lengthSec": 66.0,
+            "crossfadeSec": 2.0
+          },
+          "highpassHz": 300,
+          "gainDb": -20.0,
+          "credit": {
+            "title": "AMB Cave entrance Grotte de la Gourge water drop",
+            "author": "radio aporee",
+            "license": "Public Domain",
+            "url": "https://archive.org/details/aporee_64271_74156",
+            "downloadDate": "2026-11-24",
+            "modified": "trimmed, 66 s loop with 2 s equal-power crossfade, high-passed at 300 Hz, normalized to -23 LUFS and mixed 20 dB under the cavern"
+          }
+        }
+      ]
+    },
+    {
+      "id": "air",
+      "source": "~/oniris-sources/masters/815100__kinoton__low-wind-howling-indoor.wav",
+      "loop": {
+        "startSec": 40.0,
+        "lengthSec": 120.0,
+        "crossfadeSec": 3.0
+      },
+      "highpassHz": 25,
+      "lowpassHz": 250,
+      "gainDb": -11.0,
+      "pan": 0.0,
+      "lfo": {
+        "target": "gain",
+        "depth": 1.0,
+        "periodSec": 43.0
+      },
+      "csvNotes": "cave draught, low-passed at 250 Hz, 11 dB under the room",
+      "notes": "Freesound 815100 (CC0, 48 kHz/24-bit). All of its energy is below 1 kHz (centroid 144 Hz), so it is low-passed at 250 Hz into a pure draught under the room rather than a second texture; 120 s from 40 s (0.09x seam, +0.4 dB wrap, corr 0.822)",
+      "credit": {
+        "title": "Low Wind Howling Indoor",
+        "author": "Kinoton",
+        "license": "CC0-1.0",
+        "url": "https://freesound.org/s/815100/",
+        "downloadDate": "2026-11-24",
+        "modified": "trimmed, 120 s loop with 3 s equal-power crossfade, 25 Hz high-pass and 250 Hz low-pass, normalized to -23 LUFS and mixed 11 dB under the cavern"
+      }
+    }
+  ],
+  "events": [
+    {
+      "id": "drip",
+      "gainDb": [
+        -18.0,
+        -12.0
+      ],
+      "maxVoices": 1,
+      "minIntervalSec": 4.0,
+      "maxIntervalSec": 16.0,
+      "pan": [
+        -0.8,
+        0.8
+      ],
+      "fadeInMs": 5,
+      "fadeOutMs": 400,
+      "files": [
+        {
+          "asset": "audio/drip-01.opus",
+          "source": "~/oniris-sources/masters/177958__sclolex__water-dripping-in-cave.wav",
+          "trim": {
+            "startSec": 16.0,
+            "lengthSec": 2.8
+          },
+          "fadeInSec": 0.005,
+          "fadeOutSec": 0.4,
+          "highpassHz": 120,
+          "credit": {
+            "title": "Water Dripping in Cave",
+            "author": "Sclolex",
+            "license": "CC0-1.0",
+            "url": "https://freesound.org/s/177958/",
+            "downloadDate": "2026-11-24",
+            "modified": "single drip cut at 16.0-18.8 s, high-passed at 120 Hz, faded, normalized to -23 LUFS and mixed 18-12 dB under the bed"
+          }
+        },
+        {
+          "asset": "audio/drip-02.opus",
+          "source": "~/oniris-sources/masters/177958__sclolex__water-dripping-in-cave.wav",
+          "trim": {
+            "startSec": 42.0,
+            "lengthSec": 2.8
+          },
+          "fadeInSec": 0.005,
+          "fadeOutSec": 0.4,
+          "highpassHz": 120,
+          "credit": {
+            "title": "Water Dripping in Cave",
+            "author": "Sclolex",
+            "license": "CC0-1.0",
+            "url": "https://freesound.org/s/177958/",
+            "downloadDate": "2026-11-24",
+            "modified": "isolated drip cut at 42.0-44.8 s, high-passed at 120 Hz, faded, normalized to -23 LUFS"
+          }
+        },
+        {
+          "asset": "audio/drip-03.opus",
+          "source": "~/oniris-sources/masters/177958__sclolex__water-dripping-in-cave.wav",
+          "trim": {
+            "startSec": 34.7,
+            "lengthSec": 2.8
+          },
+          "fadeInSec": 0.005,
+          "fadeOutSec": 0.4,
+          "highpassHz": 120,
+          "credit": {
+            "title": "Water Dripping in Cave",
+            "author": "Sclolex",
+            "license": "CC0-1.0",
+            "url": "https://freesound.org/s/177958/",
+            "downloadDate": "2026-11-24",
+            "modified": "double drip cut at 34.7-37.5 s, high-passed at 120 Hz, faded, normalized to -23 LUFS"
+          }
+        }
+      ]
+    },
+    {
+      "id": "bell",
+      "gainDb": [
+        -14.0,
+        -10.0
+      ],
+      "maxVoices": 1,
+      "minIntervalSec": 120.0,
+      "maxIntervalSec": 300.0,
+      "pan": [
+        -0.4,
+        0.4
+      ],
+      "fadeInMs": 20,
+      "fadeOutMs": 700,
+      "files": [
+        {
+          "asset": "audio/bell-01.opus",
+          "source": "~/oniris-sources/masters/858114__bassimat__crystal-bell-bb3.wav",
+          "trim": {
+            "startSec": 0.0,
+            "lengthSec": 7.0
+          },
+          "fadeInSec": 0.01,
+          "fadeOutSec": 0.7,
+          "highpassHz": 80,
+          "credit": {
+            "title": "Crystal Bell - Bb3",
+            "author": "bassimat",
+            "license": "CC0-1.0",
+            "url": "https://freesound.org/s/858114/",
+            "downloadDate": "2026-11-24",
+            "modified": "single strike trimmed to 0.0-7.0 s (the second strike at 8 s is cut), faded, high-passed at 80 Hz, normalized to -23 LUFS and mixed 14-10 dB under the bed"
+          }
+        }
+      ]
+    }
+  ]
+}

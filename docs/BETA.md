@@ -137,9 +137,10 @@ they are not bundled in the APK. Two ways to get them:
 | Rainy Night | 0.1.0 | `rainy-night-v0.1.0` | rain bed + distant thunder | CC0 |
 | Seaside | 0.2.0 | `seaside-v0.2.0` | surf bed + faint breeze bed | CC0 |
 | Forest Deep | 0.1.0 | `forest-deep-v0.1.0` | forest bed + rustle bed, distant spotted owl | CC0 |
+| Crystal Caves | 0.1.0 | `crystal-caves-v0.1.0` | cave room bed (with wet sheen layer) + draught bed, drips and a rare crystal bell | CC0 |
 
 Releases live under `https://github.com/<owner>/Oniris/releases`, one per pack
-version. Totals: about 4.7 MB across the three packs, 1.9 MB for the largest.
+version. Totals: about 9.4 MB across the four packs, 4.5 MB for the largest.
 
 To publish a new pack version from a checkout:
 
