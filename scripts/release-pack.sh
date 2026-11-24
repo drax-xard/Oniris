@@ -25,12 +25,17 @@ if [[ -z "$spec_name" ]]; then
 fi
 shift
 
-prerelease=false
+# Pack releases default to prerelease so they never take the "Latest" badge
+# away from the app release; pass --full-release to publish as a normal release.
+prerelease=true
 dry_run=false
+allow_unpushed=false
 for arg in "$@"; do
   case "$arg" in
     --prerelease) prerelease=true ;;
+    --full-release) prerelease=false ;;
     --dry-run) dry_run=true ;;
+    --allow-unpushed) allow_unpushed=true ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -66,7 +71,8 @@ size_want=$(stat -c %s "$archive")
 out="dist/release/${pack_id}"
 mkdir -p "$out"
 cp "$archive" "$out/$asset"
-printf '%s  %s\n' "$sha_want" "$asset" > "$out/SHA256SUMS"
+# Same convention as the APK releases: a bare digest in <asset>.sha256
+printf '%s\n' "$sha_want" > "$out/$asset.sha256"
 
 echo "== pack $pack_id v$version"
 echo "   archive $out/$asset"
@@ -74,7 +80,7 @@ echo "   sha256  $sha_want"
 echo "   size    $size_want bytes"
 
 # ------------------------------------------------------------- notes
-"$PYTHON" - "$pack_dir/manifest.json" "$out/SHA256SUMS" "$tag" > "$out/release-notes.md" <<'PY'
+"$PYTHON" - "$pack_dir/manifest.json" "$out/$asset.sha256" "$tag" > "$out/release-notes.md" <<'PY'
 import json, sys
 manifest = json.load(open(sys.argv[1]))
 sums = open(sys.argv[2]).read().strip().split("\n")[0]
@@ -135,7 +141,7 @@ if [[ "$dry_run" == true ]]; then
   echo "== dry run: nothing published"
   echo "   release tag     $tag"
   echo "   release title   $(head -1 "$out/release-notes.md" | sed 's/^# //')"
-  echo "   assets          $out/$asset, $out/SHA256SUMS"
+  echo "   assets          $out/$asset, $out/$asset.sha256"
   echo "   notes           $out/release-notes.md"
   if [[ "$(git rev-parse HEAD)" != "$(git rev-parse "origin/main" 2>/dev/null || echo none)" ]]; then
     echo "   NOTE: HEAD is not origin/main — push the branch before publishing,"
@@ -160,9 +166,25 @@ fi
 
 api() { curl -sS -H "Authorization: token $token" -H "Accept: application/vnd.github+json" "$@"; }
 
-if [[ "$(git rev-parse HEAD)" != "$(git rev-parse "origin/main" 2>/dev/null || echo none)" ]]; then
-  echo "HEAD is not origin/main: push the commit that contains this pack before releasing." >&2
+head_sha=$(git rev-parse HEAD)
+origin_sha=$(git rev-parse "origin/main" 2>/dev/null || echo none)
+if [[ "$head_sha" != "$origin_sha" && "$allow_unpushed" != true ]]; then
+  echo "HEAD ($head_sha) is not origin/main ($origin_sha): push the commit that" >&2
+  echo "contains this pack before releasing, or pass --allow-unpushed to tag the" >&2
+  echo "remote default branch anyway and record the build commit in the notes." >&2
   exit 1
+fi
+if [[ "$head_sha" != "$origin_sha" ]]; then
+  echo "warning: publishing from unpushed commit $head_sha; the tag will point at" >&2
+  echo "         origin/main ($origin_sha) until the branch is pushed" >&2
+  {
+    echo
+    echo "## Provenance"
+    echo
+    echo "Built from commit \`$head_sha\` on \`$(git rev-parse --abbrev-ref HEAD)\`, which was"
+    echo "not yet on \`origin/main\` at publish time; the release tag therefore points at"
+    echo "\`$origin_sha\`. Rebuild from the pushed commit to confirm the digest."
+  } >> "$out/release-notes.md"
 fi
 
 if api "https://api.github.com/repos/$repo/releases/tags/$tag" | grep -q '"id"'; then
@@ -194,7 +216,7 @@ upload() {
     >/dev/null
 }
 upload "$out/$asset" "$asset"
-upload "$out/SHA256SUMS" "SHA256SUMS"
+upload "$out/$asset.sha256" "$asset.sha256"
 
 # ---------------------------------------------------------------- verify
 echo "== verifying upload"
@@ -217,8 +239,9 @@ else:
     if digest and digest != sha_want:
         print(f"   FAIL digest {digest} != local {sha_want}")
         ok = False
-if "SHA256SUMS" not in assets:
-    print("   FAIL SHA256SUMS is missing")
+sidecar = f"{asset}.sha256"
+if sidecar not in assets:
+    print(f"   FAIL {sidecar} is missing")
     ok = False
 print(f"   url: {release['html_url']}")
 sys.exit(0 if ok else 1)
